@@ -157,13 +157,22 @@ class SilverFoxKillerGUI:
 
         progress_box = ttk.Frame(main, style="Card.TFrame", padding=(16, 11))
         progress_box.pack(fill=tk.X, pady=(0, 12))
-        self.progress_text = ttk.Label(progress_box, text="等待开始", style="CardTitle.TLabel")
-        self.progress_text.pack(side=tk.LEFT)
-        self.progress_value = ttk.Label(progress_box, text="0%", style="CardTitle.TLabel")
-        self.progress_value.pack(side=tk.RIGHT)
+        progress_box.columnconfigure(0, weight=1)
+        progress_box.columnconfigure(1, minsize=48)
+        progress_status_slot = ttk.Frame(
+            progress_box, style="Card.TFrame", width=760, height=20)
+        progress_status_slot.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        progress_status_slot.grid_propagate(False)
+        self.progress_text = ttk.Label(
+            progress_status_slot, text="等待开始", style="CardTitle.TLabel", anchor=tk.W)
+        self.progress_text.pack(fill=tk.BOTH, expand=True)
+        self.progress_value = ttk.Label(
+            progress_box, text="0%", style="CardTitle.TLabel",
+            width=5, anchor=tk.E)
+        self.progress_value.grid(row=0, column=1, sticky=tk.E)
         self.progress = ttk.Progressbar(progress_box, style="Scan.Horizontal.TProgressbar",
                                         mode="determinate", maximum=100)
-        self.progress.pack(fill=tk.X, pady=(7, 0))
+        self.progress.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(7, 0))
 
         pane = ttk.Panedwindow(main, orient=tk.VERTICAL)
         pane.pack(fill=tk.BOTH, expand=True)
@@ -259,8 +268,27 @@ class SilverFoxKillerGUI:
         value = max(0, min(100, int(percent)))
         self.progress["value"] = value
         self.progress_value.config(text=f"{value}%")
-        self.progress_text.config(text=message)
-        self.summary_labels["state"].config(text=message[:12])
+        display_message = message if len(message) <= 68 else message[:65] + "…"
+        self.progress_text.config(text=display_message)
+        self.summary_labels["state"].config(text=self._progress_stage(message))
+
+    @staticmethod
+    def _progress_stage(message):
+        if any(token in message for token in ("候选", "文件", "校验", "枚举")):
+            return "文件扫描"
+        if "注册表" in message:
+            return "注册表扫描"
+        if "进程" in message:
+            return "进程扫描"
+        if "网络" in message:
+            return "网络扫描"
+        if "处置" in message:
+            return "安全处置"
+        if any(token in message for token in ("修复", "防火墙", "Defender", "DNS", "hosts", "WDAC")):
+            return "安全修复"
+        if "完成" in message:
+            return "已完成"
+        return "处理中"
 
     def _set_summary(self, findings, confirmed, handled, state):
         self.summary_labels["findings"].config(text=str(findings))
