@@ -41,3 +41,7 @@ Thumbs.db
 # Test reports
 test_report.txt
 report.txt
+
+# User data
+history/
+whitelist.json
