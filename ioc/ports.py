@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 恶意端口数据库
-Malicious Ports Database
+Malicious Ports Database - 银狐木马 IOC
 """
 
 class MaliciousPorts:
@@ -11,16 +11,23 @@ class MaliciousPorts:
     def __init__(self):
         # 银狐病毒已知的恶意端口
         self.ports = [
-            # 常见恶意端口
-            8880,  # 银狐病毒回联端口
-            4444,  # 常见反弹shell端口
-            5555,  # 常见远程控制端口
-            6666,  # 常见恶意软件端口
-            7777,  # 常见恶意软件端口
-            8888,  # 常见恶意软件端口
-            9999,  # 常见恶意软件端口
+            # ========== 银狐专用端口 ==========
+            8880,   # 银狐病毒回联端口（最常见）
+            4444,   # 常见反弹shell端口
+            5050,   # ValleyRAT C2端口
+            1080,   # 伪装Telegram C2端口
+            9000,   # 远控C2端口
             
-            # 更多端口...
+            # ========== 通用恶意端口 ==========
+            443,    # HTTPS（被滥用于C2通信）
+            80,     # HTTP（被滥用于C2通信）
+            8080,   # HTTP代理端口
+            5555,   # 常见远程控制端口
+            6666,   # 常见恶意软件端口
+            7777,   # 常见恶意软件端口
+            8888,   # 常见恶意软件端口
+            9999,   # 常见恶意软件端口
+            27978,  # ValleyRAT C2端口
         ]
     
     def get_ports(self):
@@ -45,7 +52,6 @@ class MaliciousPorts:
         """获取恶意端口数量"""
         return len(self.ports)
     
-    def get_ports_by_service(self, service):
-        """根据服务获取端口"""
-        # 这里可以添加根据服务筛选端口的逻辑
-        return self.ports
+    def search_port(self, query):
+        """搜索端口"""
+        return [p for p in self.ports if str(query) in str(p)]

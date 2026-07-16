@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 恶意注册表键数据库
-Malicious Registry Keys Database
+Malicious Registry Keys Database - 银狐木马 IOC
 """
 
 class MaliciousRegistryKeys:
@@ -11,24 +11,78 @@ class MaliciousRegistryKeys:
     def __init__(self):
         # 银狐病毒已知的恶意注册表键
         self.registry_keys = {
-            # Run键持久化
+            # ========== Run键持久化 ==========
             "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run": [
                 "SilverFox",
                 "WinUpdateService",
-                "WindowsUpdate"
+                "WindowsUpdate",
+                "WindowsDefender",
+                "WindowsFirewall",
+                "WindowsSecurity",
+                "SystemUpdate",
+                "NetworkService",
+                "svchost",
+                "Microsoftdata",
             ],
             "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run": [
                 "SilverFox",
                 "WinUpdateService",
-                "WindowsUpdate"
+                "WindowsUpdate",
+                "WindowsDefender",
+                "WindowsFirewall",
+                "WindowsSecurity",
+                "SystemUpdate",
+                "NetworkService",
+                "svchost",
+                "Microsoftdata",
             ],
             
-            # AppInit_DLLs
+            # ========== AppInit_DLLs ==========
             "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows": [
-                "AppInit_DLLs"
+                "AppInit_DLLs",
             ],
             
-            # 更多注册表键...
+            # ========== Winlogon劫持 ==========
+            "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon": [
+                "Shell",
+                "Userinit",
+                "Winlogon",
+                "GPExtensions",
+            ],
+            
+            # ========== 服务注册 ==========
+            "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services": [
+                "Zowieg951d475sbs",
+                "SilverFoxService",
+                "WinUpdateSvc",
+                "WindowsDefenderSvc",
+                "NetworkService",
+                "SystemEventNotificationService",
+            ],
+            
+            # ========== 计划任务持久化 ==========
+            "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Schedule\\TaskCache\\Tree": [
+                "\\Microsoft\\Windows\\Application Experience\\Microsoft Compatibility Appraiser",
+                "\\Microsoft\\Windows\\Customer Experience Improvement Program\\Consolidator",
+                "\\Microsoft\\Windows\\DiskDiagnostic\\Microsoft-Windows-DiskDiagnosticDataCollector",
+                "\\Microsoft\\Windows\\PI\\Sqm-Tasks",
+            ],
+            
+            # ========== ETW/AMSI绕过 ==========
+            "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System": [
+                "EnableLUA",
+                "ConsentPromptBehaviorAdmin",
+            ],
+            
+            # ========== WMI持久化 ==========
+            "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\WBEM\\WDM": [
+                "CommandLineEventConsumer",
+            ],
+            
+            # ========== 注册表Shellcode存储 ==========
+            "HKEY_CURRENT_USER\\Console": [
+                "hrqnmlb",
+            ],
         }
     
     def get_all_keys(self):
@@ -77,7 +131,12 @@ class MaliciousRegistryKeys:
             value_names.extend(values)
         return value_names
     
-    def get_value_contents(self):
-        """获取所有恶意值内容"""
-        # 这里可以添加恶意值内容的检测逻辑
-        return []
+    def search_key(self, query):
+        """搜索注册表键值（支持部分匹配）"""
+        query_lower = query.lower()
+        results = {}
+        for key_path, values in self.registry_keys.items():
+            matching_values = [v for v in values if query_lower in v.lower()]
+            if matching_values or query_lower in key_path.lower():
+                results[key_path] = matching_values
+        return results

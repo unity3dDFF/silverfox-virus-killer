@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 恶意进程数据库
-Malicious Processes Database
+Malicious Processes Database - 银狐木马 IOC
 """
 
 class MaliciousProcesses:
@@ -13,20 +13,57 @@ class MaliciousProcesses:
         self.malicious_processes = {
             # 恶意进程名称
             "names": [
+                # ========== 2026年7月 - ValleyRAT ==========
+                "GjdLUhqZIJJB.exe",
+                
+                # ========== 2026年3月 - 内核驱动对抗 ==========
+                "KGseKKdKce.exe",
+                "NtHandleCallback.exe",
+                "main.exe",
+                "bypass.exe",
+                "NVIDIA.exe",
+                "tree.exe",
+                "kail.exe",
+                
+                # ========== 2026年1月 - 伪装Telegram ==========
+                "OTGContainer.exe",
+                "FFLOADER.exe",
+                "Telegram.exe",
+                "tracerpt.exe",
+                
+                # ========== 银狐通用恶意进程 ==========
                 "银狐.exe",
                 "silverfox.exe",
                 "silver_fox.exe",
-                "svchost.exe",  # 注意：这个需要特别处理，因为系统也有这个进程
-                "explorer.exe",  # 注意：这个需要特别处理，因为系统也有这个进程
-                "notepad.exe"  # 注意：这个需要特别处理，因为系统也有这个进程
+                "Microsoftdata.exe",
+                "R2-Signed.exe",
+                "SSRClient.exe",
+                "updat4.vac",
+                
+                # ========== 系统进程名被滥用（需结合路径判断） ==========
+                "svchost.exe",
+                "explorer.exe",
+                "notepad.exe",
+                "rundll32.exe",
+                "mshta.exe",
+                "wscript.exe",
+                "cscript.exe",
+                "cmd.exe",
+                "powershell.exe",
+                "tracerpt.exe",
+                "wmic.exe",
             ],
             
             # 恶意进程路径
             "paths": [
+                r"C:\Drivers",
                 r"C:\Temp",
                 r"C:\Windows\Temp",
                 r"C:\Users\*\AppData\Local\Temp",
-                r"C:\Users\Public\Documents"
+                r"C:\Users\Public\Documents",
+                r"C:\Users\Public\Downloads",
+                r"C:\ProgramData",
+                r"C:\WhatsAppBackup",
             ],
             
             # 恶意进程命令行模式
@@ -36,8 +73,29 @@ class MaliciousProcesses:
                 "wscript",
                 "cscript",
                 "mshta",
-                "rundll32"
-            ]
+                "rundll32",
+                "7zr.exe x -y -bd",
+                "locale.dat",
+                "locale2.dat",
+                "locale7.dat",
+                "Server8888",
+                "htLcENyRFYwXsHFnUnqK",
+                "?Bid@locale@std",
+                "Windows Defender扫描例外",
+                "Add-MpPreference",
+                "Set-MpPreference",
+                "bb.jpg",
+                "bb2.jpg",
+                "hrqnmlb",
+            ],
+            
+            # 注入目标进程
+            "injection_targets": [
+                "svchost.exe",
+                "explorer.exe",
+                "tracerpt.exe",
+                "notepad.exe",
+            ],
         }
     
     def get_all_processes(self):
@@ -55,6 +113,10 @@ class MaliciousProcesses:
     def get_cmdline_patterns(self):
         """获取恶意进程命令行模式"""
         return self.malicious_processes.get("cmdline_patterns", [])
+    
+    def get_injection_targets(self):
+        """获取注入目标进程"""
+        return self.malicious_processes.get("injection_targets", [])
     
     def add_process_name(self, name):
         """添加新的恶意进程名称"""
@@ -79,7 +141,6 @@ class MaliciousProcesses:
         """检查进程路径是否是恶意的"""
         for path in self.malicious_processes["paths"]:
             if '*' in path:
-                # 处理通配符路径
                 import glob
                 for expanded_path in glob.glob(path):
                     if process_path.startswith(expanded_path):
@@ -100,3 +161,8 @@ class MaliciousProcesses:
     def get_process_count(self):
         """获取恶意进程数量"""
         return len(self.malicious_processes["names"])
+    
+    def search_process(self, query):
+        """搜索进程名（支持部分匹配）"""
+        query_lower = query.lower()
+        return [p for p in self.malicious_processes["names"] if query_lower in p.lower()]
