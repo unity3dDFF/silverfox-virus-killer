@@ -9,6 +9,7 @@ import os
 import json
 import time
 from datetime import datetime
+from quarantine import default_data_dir
 
 
 class ScanHistory:
@@ -17,8 +18,7 @@ class ScanHistory:
     def __init__(self, history_dir=None):
         """初始化历史记录管理器"""
         if history_dir is None:
-            # 默认在项目目录下创建 history 文件夹
-            history_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "history")
+            history_dir = str(default_data_dir() / "History")
         
         self.history_dir = history_dir
         self.history_file = os.path.join(history_dir, "scan_history.json")

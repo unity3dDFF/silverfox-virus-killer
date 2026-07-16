@@ -20,25 +20,38 @@ class SilverFoxScanner:
         self.process_scanner = ProcessScanner(verbose)
         self.network_scanner = NetworkScanner(verbose)
     
-    def scan_all(self):
+    def scan_all(self, progress_callback=None):
         """执行全面扫描"""
         results = []
+
+        def progress(percent, message):
+            if progress_callback:
+                progress_callback(max(0, min(100, int(percent))), message)
         
         if self.verbose:
             print("[扫描] 开始文件扫描...")
-        results.extend(self.file_scanner.scan())
+        progress(0, "正在枚举候选文件…")
+        results.extend(self.file_scanner.scan(
+            lambda current, total, message: progress(
+                5 + (current / max(total, 1)) * 65, message
+            )
+        ))
         
         if self.verbose:
             print("[扫描] 开始注册表扫描...")
+        progress(72, "正在检查注册表启动项…")
         results.extend(self.registry_scanner.scan())
         
         if self.verbose:
             print("[扫描] 开始进程扫描...")
+        progress(82, "正在校验运行进程…")
         results.extend(self.process_scanner.scan())
         
         if self.verbose:
             print("[扫描] 开始网络连接扫描...")
+        progress(94, "正在检查活动网络连接…")
         results.extend(self.network_scanner.scan())
+        progress(100, "扫描完成")
         
         return results
     

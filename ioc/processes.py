@@ -40,18 +40,6 @@ class MaliciousProcesses:
                 "SSRClient.exe",
                 "updat4.vac",
                 
-                # ========== 系统进程名被滥用（需结合路径判断） ==========
-                "svchost.exe",
-                "explorer.exe",
-                "notepad.exe",
-                "rundll32.exe",
-                "mshta.exe",
-                "wscript.exe",
-                "cscript.exe",
-                "cmd.exe",
-                "powershell.exe",
-                "tracerpt.exe",
-                "wmic.exe",
             ],
             
             # 恶意进程路径

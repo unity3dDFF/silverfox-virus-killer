@@ -1,26 +1,8 @@
 # 银狐病毒专杀工具依赖库
 # SilverFox Virus Killer Dependencies
 
-# 进程管理
-psutil>=5.9.0
-
-# 系统信息
-platform>=1.0.8
-
-# 日期时间处理
-python-dateutil>=2.8.2
-
-# JSON处理
-ujson>=5.7.0
-
-# 日志记录
-loguru>=0.7.0
-
-# 网络请求
-requests>=2.28.0
-
-# 数据库操作
-sqlalchemy>=2.0.0
+# 运行时唯一的第三方依赖。其余功能只使用 Python 标准库。
+psutil>=5.9,<8
 
 # 图形界面（可选）
 # tkinter  # Python内置

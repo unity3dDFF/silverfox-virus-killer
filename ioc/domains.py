@@ -67,6 +67,7 @@ class MaliciousDomains:
             "shuiwujc1.cn",
             "cc.kmsccadn.com",
         ]
+        self.domains = [domain.lower().rstrip('.') for domain in self.domains]
     
     def get_domains(self):
         """获取所有恶意域名"""
@@ -84,10 +85,8 @@ class MaliciousDomains:
     
     def is_malicious(self, domain):
         """检查域名是否是恶意的"""
-        for malicious_domain in self.domains:
-            if malicious_domain in domain:
-                return True
-        return False
+        domain = domain.lower().rstrip('.')
+        return any(domain == item or domain.endswith('.' + item) for item in self.domains)
     
     def get_domain_count(self):
         """获取恶意域名数量"""

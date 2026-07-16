@@ -18,13 +18,14 @@ class SilverFoxCleaner:
         self.file_cleaner = FileCleaner(verbose)
         self.registry_cleaner = RegistryCleaner(verbose)
     
-    def clean_all(self, scan_results=None):
+    def clean_all(self, scan_results=None, progress_callback=None):
         """清除所有威胁"""
         results = []
         
         if scan_results:
             # 根据扫描结果进行清除
-            for result in scan_results:
+            total = len(scan_results)
+            for index, result in enumerate(scan_results, 1):
                 threat_type = result.get('type', '')
                 
                 if threat_type == 'process':
@@ -43,18 +44,22 @@ class SilverFoxCleaner:
                         results.append(clean_result)
                 
                 elif threat_type == 'network':
-                    # 网络连接通常不需要清除，只需要阻止
+                    # 本工具不伪装已执行防火墙操作；网络项留给人工复核。
                     results.append({
                         'type': 'network',
-                        'action': 'blocked',
-                        'detail': f'已阻止网络连接',
-                        'success': True
+                        'action': 'skipped',
+                        'detail': '网络连接仅报告，未自动添加防火墙规则',
+                        'success': False,
+                        'skipped': True
                     })
+                if progress_callback:
+                    progress_callback(index, total, result.get('detail', '正在处置'))
         else:
-            # 执行默认清除操作
-            results.extend(self.process_cleaner.clean_all())
-            results.extend(self.file_cleaner.clean_all())
-            results.extend(self.registry_cleaner.clean_all())
+            results.append({
+                'type': 'cleaner', 'action': 'skipped',
+                'detail': '拒绝盲目清理：请先运行扫描并传入扫描结果',
+                'success': False, 'skipped': True
+            })
         
         return results
     

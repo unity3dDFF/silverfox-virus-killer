@@ -1,219 +1,85 @@
 # 银狐病毒专杀工具
 
-SilverFox Virus Killer - 专门针对银狐木马病毒的查杀工具
+面向 Windows 10/11 的银狐木马检测与保守处置工具。v2 的核心原则是：**证据分级、默认不误删、确认 IOC 才处置、文件先隔离且可恢复**。
 
-## 功能特性
+## Windows 版本
 
-- **全面扫描**: 文件系统、注册表、进程、网络连接全方位检测
-- **智能清除**: 自动终止恶意进程、删除恶意文件、清理注册表
-- **系统修复**: 恢复系统设置、修复安全配置、清理启动项
-- **详细报告**: 生成详细的扫描、清除、修复报告
-- **图形化界面**: 友好的GUI界面，操作简单直观
+`dist` 目录包含：
 
-## 支持的威胁检测
+- `SilverFoxKillerGUI.exe`：图形界面，适合普通用户。
+- `SilverFoxKiller.exe`：命令行版本，适合应急响应与批量采集。
+- `SHA256SUMS.txt`：发布物完整性校验值。
 
-### 银狐病毒特征
-- **文件检测**: 检测已知的恶意文件名、哈希值、扩展名
-- **注册表检测**: 检测Run键、AppInit_DLLs等持久化位置
-- **进程检测**: 检测可疑进程、异常进程路径、可疑命令行
-- **网络检测**: 检测恶意域名、IP地址、可疑端口
+扫描可以普通权限运行；注册表、系统级进程和安全设置修复需要管理员权限。
 
-### 已知IOC（入侵指标）
-- **文件哈希**: 20+ 个已知恶意文件哈希
-- **恶意域名**: 阿里云OSS域名、其他恶意域名
-- **恶意IP**: 已知的恶意IP地址
-- **恶意端口**: 常见的恶意软件端口
+## v2 能力
 
-## 安装与使用
+- 扫描常见投递目录、启动项、运行进程与活动网络连接。
+- GUI 使用候选文件总数和实际完成阶段驱动进度，不再模拟百分比。
+- 新版界面提供风险/置信度分栏、概览卡片、彩色结果、隔离恢复和报告导出。
+- 同时计算 MD5、SHA-1、SHA-256，兼容不同年代的公开 IOC。
+- 结果包含 `severity`、`confidence`、`detector` 和证据详情。
+- 只有已知哈希精确命中才标记为 `confirmed` 并允许自动处置。
+- 文件移动到本机隔离区，改为不可执行扩展名，并记录 SHA-256、原路径和恢复 ID。
+- 终止进程前校验 PID、创建时间、路径，并拒绝终止 Windows 核心进程。
+- 注册表值只有在目标文件哈希确认后才清理，操作前写入备份。
+- 网络端口仅作为低置信线索；工具不会谎报“已阻止”连接。
+- 系统修复限于启用 Windows 防火墙/Defender、刷新 DNS、备份后清理 hosts 精确 IOC；WDAC 只审计不自动删除。
 
-### 环境要求
-- Python 3.8+
-- Windows 10/11（推荐）
-- PyInstaller（打包exe时需要）
+## 使用
 
-### 安装依赖
-```bash
-pip install -r requirements.txt
+```powershell
+# 扫描并生成文本报告
+.\SilverFoxKiller.exe scan --output report.txt
+
+# 只扫描指定目录（进程、注册表和网络仍会检查）
+.\SilverFoxKiller.exe scan --path C:\Users\Public\Downloads --json
+
+# 重新扫描并处置已确认 IOC；启发式结果会跳过
+.\SilverFoxKiller.exe clean --yes --output clean-report.txt
+
+# 查看隔离区
+.\SilverFoxKiller.exe quarantine-list
+
+# 恢复隔离文件
+.\SilverFoxKiller.exe restore --id <隔离ID> --yes
+
+# 保守系统修复
+.\SilverFoxKiller.exe repair --yes
 ```
 
-### 打包Windows exe
+不带 `--yes` 时，CLI 不会执行修改系统的操作。GUI 在处置前显示确认对话框。
 
-#### 方法1：使用批处理脚本（推荐）
+隔离和备份默认位于 `%ProgramData%\SilverFoxKiller`；无该环境变量时回退到当前用户数据目录。样本不会上传。
 
-```bash
-# 双击运行
-build_windows.bat
-```
+## 从源码运行与测试
 
-#### 方法2：手动打包
-
-```bash
-# 安装PyInstaller
-pip install pyinstaller
-
-# 打包CLI版本
-pyinstaller --onefile --name SilverFoxKiller main.py
-
-# 打包GUI版本
-pyinstaller --onefile --windowed --name SilverFoxKillerGUI gui.py
-```
-
-打包完成后，在 `dist` 目录下会生成：
-- `SilverFoxKiller.exe` - 命令行版本
-- `SilverFoxKillerGUI.exe` - 图形界面版本
-
-详细打包说明请参考 [BUILD_WINDOWS.md](BUILD_WINDOWS.md)
-
-### 使用方法
-
-#### 图形化界面（推荐）
-
-```bash
-# 使用启动脚本
-./start_gui.sh
-
-# 或直接运行
-python3 gui.py
-```
-
-#### 命令行方式
-
-##### 扫描系统
-```bash
+```powershell
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
 python main.py scan
+python gui.py
 ```
 
-##### 清除病毒
-```bash
-python main.py clean
+## 构建 Windows EXE
+
+```powershell
+.\build_windows.ps1
 ```
 
-##### 修复系统
-```bash
-python main.py repair
-```
+也可双击 `build_windows.bat`。打 `v*` 标签或手动触发 GitHub Actions 会构建 CLI、GUI 和校验文件。详见 [BUILD_WINDOWS.md](BUILD_WINDOWS.md)。
 
-##### 完整处理（扫描+清除+修复）
-```bash
-python main.py full
-```
+## 检测边界
 
-### 命令行参数
-- `--verbose`, `-v`: 显示详细信息
-- `--output`, `-o`: 指定报告输出文件（默认: report.txt）
-- `--auto-fix`, `-a`: 自动修复发现的问题
+- 文件名、所在目录、脚本宿主、端口和启动项名称都可能是合法行为，只作为线索。
+- IOC 会过期或被云服务复用，处置前仍应结合数字签名、来源、时间线和企业资产基线复核。
+- 本工具不是通用杀毒软件，不能替代 Microsoft Defender、EDR 或离线应急盘。
+- 不要通过关闭杀毒软件、添加排除项来运行本工具；如发布物被拦截，应先核验 SHA-256、源码和构建来源。
 
-## 项目结构
+## 参考研究
 
-```
-yh/
-├── main.py                    # 主程序入口
-├── gui.py                    # 图形化界面
-├── version.py                # 版本信息
-├── start.sh                  # 命令行启动脚本
-├── start_gui.sh              # GUI启动脚本
-├── build_windows.bat         # Windows打包脚本
-├── SilverFoxKiller.spec      # PyInstaller配置（CLI）
-├── SilverFoxKillerGUI.spec   # PyInstaller配置（GUI）
-├── requirements.txt          # 依赖库
-├── LICENSE                   # MIT许可证
-├── .gitignore               # Git忽略文件
-├── README.md                 # 项目说明
-├── INSTALL.md               # 安装指南
-├── QUICK_START.md           # 快速开始
-├── PROJECT_SUMMARY.md       # 项目总结
-├── COMPLETION_REPORT.md     # 完成报告
-├── GUI_README.md            # GUI使用说明
-├── GUI_SUMMARY.md           # GUI功能总结
-├── BUILD_WINDOWS.md         # Windows打包说明
-├── scanner/                  # 扫描模块
-│   ├── __init__.py
-│   ├── file_scanner.py      # 文件扫描
-│   ├── registry_scanner.py  # 注册表扫描
-│   ├── process_scanner.py   # 进程扫描
-│   └── network_scanner.py   # 网络扫描
-├── cleaner/                  # 清除模块
-│   ├── __init__.py
-│   ├── process_cleaner.py   # 进程清除
-│   ├── file_cleaner.py      # 文件清除
-│   └── registry_cleaner.py  # 注册表清理
-├── 修复/                     # 修复模块
-│   ├── __init__.py
-│   └── system_repair.py     # 系统修复
-├── reports/                  # 报告模块
-│   ├── __init__.py
-│   └── report_generator.py  # 报告生成
-├── ioc/                      # IOC数据库
-│   ├── __init__.py
-│   ├── file_hashes.py       # 文件哈希
-│   ├── domains.py           # 域名列表
-│   ├── registry_keys.py     # 注册表键
-│   ├── files.py             # 恶意文件
-│   ├── processes.py         # 恶意进程
-│   ├── ips.py               # 恶意IP
-│   └── ports.py             # 恶意端口
-└── utils/                    # 工具函数
-    ├── __init__.py
-    └── common.py            # 通用工具
-```
-
-## 技术特点
-
-### 检测技术
-- **多维度检测**: 文件、注册表、进程、网络全方位覆盖
-- **特征匹配**: 基于已知恶意特征的快速检测
-- **行为分析**: 检测可疑的行为模式
-- **哈希验证**: 基于文件哈希的精确检测
-
-### 清除技术
-- **进程终止**: 安全终止恶意进程
-- **文件删除**: 删除恶意文件和目录
-- **注册表清理**: 清理恶意注册表项
-- **系统修复**: 恢复被篡改的系统设置
-
-### 图形化界面
-- **友好界面**: 直观的GUI设计，操作简单
-- **实时进度**: 进度条实时显示操作进度
-- **结果表格**: 扫描结果以表格形式清晰展示
-- **详细日志**: 所有操作记录在日志区域
-- **异步操作**: 后台线程执行，保持界面响应
-- **跨平台**: 支持Windows、macOS、Linux
-
-### 安全特性
-- **备份机制**: 操作前自动备份重要文件
-- **权限检查**: 检查操作权限，避免误操作
-- **日志记录**: 详细记录所有操作
-- **报告生成**: 生成详细的处理报告
-
-## 更新与维护
-
-### IOC更新
-定期更新IOC数据库，添加新发现的恶意特征：
-- 文件哈希
-- 恶意域名
-- IP地址
-- 注册表键
-
-### 版本更新
-- 定期检查更新
-- 修复已知问题
-- 添加新功能
-
-## 注意事项
-
-1. **管理员权限**: 某些操作需要管理员权限
-2. **备份重要数据**: 使用前建议备份重要数据
-3. **隔离环境测试**: 建议在隔离环境中先测试
-4. **网络连接**: 某些功能需要网络连接
-
-## 免责声明
-
-本工具仅供安全研究和防护使用。使用本工具所造成的任何后果，开发者不承担责任。
+实现参考了 GitHub 上的同类防护项目，但没有复制病毒样本或高风险的一键执行逻辑。取舍记录见 [docs/REFERENCE_RESEARCH.md](docs/REFERENCE_RESEARCH.md)。
 
 ## 许可证
 
-MIT License
-
-## 联系方式
-
-如有问题或建议，请通过GitHub Issues反馈。
+MIT。仅用于合法安全防护、应急响应和研究。

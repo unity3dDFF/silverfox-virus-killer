@@ -67,7 +67,8 @@ class ReportGenerator:
         report.append("银狐病毒扫描报告")
         report.append("=" * 60)
         report.append(f"生成时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report.append(f"扫描结果: 发现 {len(results)} 个威胁")
+        confirmed = sum(1 for item in results if item.get('confidence') == 'confirmed')
+        report.append(f"扫描结果: {len(results)} 条检测线索，{confirmed} 条已确认 IOC")
         report.append("")
         
         # 按类型分组
@@ -80,13 +81,15 @@ class ReportGenerator:
         
         # 生成各类型报告
         for threat_type, threats in threats_by_type.items():
-            report.append(f"【{threat_type.upper()}威胁】 ({len(threats)} 个)")
+            report.append(f"【{threat_type.upper()} 检测项】 ({len(threats)} 个)")
             report.append("-" * 40)
             
             for i, threat in enumerate(threats, 1):
                 report.append(f"{i}. {threat.get('detail', '未知威胁')}")
                 report.append(f"   路径: {threat.get('path', 'N/A')}")
                 report.append(f"   严重性: {threat.get('severity', 'unknown')}")
+                report.append(f"   置信度: {threat.get('confidence', 'unknown')}")
+                report.append(f"   检测器: {threat.get('detector', 'unknown')}")
                 report.append(f"   建议操作: {threat.get('action', 'unknown')}")
                 report.append("")
         
@@ -178,7 +181,9 @@ class ReportGenerator:
         # 扫描结果摘要
         report.append("【扫描结果摘要】")
         report.append("-" * 40)
-        report.append(f"发现威胁: {len(scan_results)} 个")
+        confirmed = sum(1 for item in scan_results if item.get('confidence') == 'confirmed')
+        report.append(f"检测线索: {len(scan_results)} 个")
+        report.append(f"已确认 IOC: {confirmed} 个")
         
         # 按类型统计
         threat_types = {}
