@@ -26,47 +26,41 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      - name: Run safety tests
-        run: python -m unittest discover -s tests -v
-
-      - name: Build CLI version
-        run: pyinstaller --noconfirm --clean --onefile --name SilverFoxKiller --collect-all psutil --hidden-import history main.py
-
-      - name: Build GUI version
-        run: pyinstaller --noconfirm --clean --onefile --windowed --name SilverFoxKillerGUI --collect-all psutil --hidden-import repair.system_repair --hidden-import history gui.py
-
-      - name: Generate checksums
+      - name: Resolve application version
         shell: pwsh
         run: |
-          Get-ChildItem dist/*.exe | ForEach-Object {
-            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
-            "$hash  $($_.Name)"
-          } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          $version = (python -c "from version import __version__; print(__version__)").Trim()
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Test and build Windows executables
+        shell: pwsh
+        run: ./build_windows.ps1 -Python python -SkipInstall
 
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SilverFoxKiller-CLI
-          path: dist/SilverFoxKiller.exe
+          name: SilverFoxKiller-v${{ env.APP_VERSION }}-windows-x64
+          path: dist/SilverFoxKiller-v${{ env.APP_VERSION }}-windows-x64.exe
 
       - name: Upload GUI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SilverFoxKiller-GUI
-          path: dist/SilverFoxKillerGUI.exe
+          name: SilverFoxKillerGUI-v${{ env.APP_VERSION }}-windows-x64
+          path: dist/SilverFoxKillerGUI-v${{ env.APP_VERSION }}-windows-x64.exe
 
       - name: Upload checksums
         uses: actions/upload-artifact@v4
         with:
-          name: SHA256SUMS
-          path: dist/SHA256SUMS.txt
+          name: SHA256SUMS-v${{ env.APP_VERSION }}
+          path: dist/SHA256SUMS-v${{ env.APP_VERSION }}.txt
 
-      - name: Create Release
+      - name: Create latest release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/SilverFoxKiller.exe
-            dist/SilverFoxKillerGUI.exe
-            dist/SHA256SUMS.txt
+            dist/SilverFoxKiller-v${{ env.APP_VERSION }}-windows-x64.exe
+            dist/SilverFoxKillerGUI-v${{ env.APP_VERSION }}-windows-x64.exe
+            dist/SHA256SUMS-v${{ env.APP_VERSION }}.txt
           generate_release_notes: true
+          make_latest: true
