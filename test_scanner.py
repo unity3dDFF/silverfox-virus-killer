@@ -31,7 +31,7 @@ def test_imports():
     
     try:
         import importlib
-        修复_module = importlib.import_module('修复')
+        修复_module = importlib.import_module('repair')
         SystemRepair = 修复_module.SystemRepair
         print("✓ 修复 模块导入成功")
     except ImportError as e:

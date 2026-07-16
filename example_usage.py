@@ -76,7 +76,7 @@ def example_repair():
     print("=" * 60)
     
     import importlib
-    修复_module = importlib.import_module('修复')
+    修复_module = importlib.import_module('repair')
     SystemRepair = 修复_module.SystemRepair
     
     # 创建修复器

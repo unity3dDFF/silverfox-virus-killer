@@ -167,7 +167,7 @@ class SilverFoxKillerGUI:
             
             from scanner import SilverFoxScanner
             from cleaner import SilverFoxCleaner
-            修复_module = importlib.import_module('修复')
+            修复_module = importlib.import_module('repair')
             SystemRepair = 修复_module.SystemRepair
             from reports import ReportGenerator
             
