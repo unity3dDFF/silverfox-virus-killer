@@ -1,205 +1,76 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-进程清除模块
-Process Cleaner Module
-"""
+"""Conservative process remediation."""
+
+from __future__ import annotations
+
+import os
 
 try:
     import psutil
     PSUTIL_AVAILABLE = True
 except ImportError:
+    psutil = None
     PSUTIL_AVAILABLE = False
 
-import time
 
 class ProcessCleaner:
-    """进程清除器"""
-    
+    PROTECTED_NAMES = {
+        "system", "registry", "smss.exe", "csrss.exe", "wininit.exe",
+        "services.exe", "lsass.exe", "winlogon.exe", "svchost.exe",
+        "explorer.exe", "dwm.exe",
+    }
+
     def __init__(self, verbose=False):
         self.verbose = verbose
-    
+
     def clean_process(self, threat_info):
-        """清除指定进程"""
         if not PSUTIL_AVAILABLE:
-            if self.verbose:
-                print("[警告] psutil未安装，无法清除进程")
-            return {
-                'type': 'process',
-                'action': 'skipped',
-                'detail': 'psutil未安装，无法清除进程',
-                'success': False,
-                'skipped': True
-            }
-        
+            return self._skipped("psutil未安装，无法终止进程")
+        if not threat_info.get("remediable") or threat_info.get("confidence") != "confirmed":
+            return self._skipped("只有已确认哈希命中的进程才允许自动终止")
+        pid = threat_info.get("pid")
+        if not pid or pid in {0, 4, os.getpid()}:
+            return self._skipped(f"拒绝终止受保护或当前进程 PID: {pid}")
         try:
-            pid = threat_info.get('pid')
-            if not pid:
-                return {
-                    'type': 'process',
-                    'action': 'skipped',
-                    'detail': '未指定PID',
-                    'success': False,
-                    'skipped': True
-                }
-            
-            # 获取进程信息
-            try:
-                proc = psutil.Process(pid)
-                proc_name = proc.name()
-                proc_path = proc.exe()
-            except psutil.NoSuchProcess:
-                return {
-                    'type': 'process',
-                    'action': 'skipped',
-                    'detail': f'进程 {pid} 不存在',
-                    'success': False,
-                    'skipped': True
-                }
-            
-            # 尝试终止进程
-            if self.terminate_process(proc):
-                return {
-                    'type': 'process',
-                    'action': 'terminated',
-                    'pid': pid,
-                    'name': proc_name,
-                    'path': proc_path,
-                    'detail': f'成功终止进程: {proc_name} (PID: {pid})',
-                    'success': True
-                }
-            else:
-                return {
-                    'type': 'process',
-                    'action': 'failed',
-                    'pid': pid,
-                    'name': proc_name,
-                    'path': proc_path,
-                    'detail': f'无法终止进程: {proc_name} (PID: {pid})',
-                    'success': False
-                }
-                
-        except Exception as e:
-            if self.verbose:
-                print(f"清除进程时出错: {e}")
-            return {
-                'type': 'process',
-                'action': 'error',
-                'detail': f'清除进程时出错: {e}',
-                'success': False
-            }
-    
-    def terminate_process(self, proc):
-        """终止进程"""
-        if not PSUTIL_AVAILABLE:
-            return False
-        
-        try:
-            # 首先尝试正常终止
+            proc = psutil.Process(pid)
+            name = proc.name()
+            if name.lower() in self.PROTECTED_NAMES:
+                return self._skipped(f"拒绝终止 Windows 核心进程: {name}")
+            expected_path = os.path.normcase(threat_info.get("path") or "")
+            actual_path = os.path.normcase(proc.exe() or "")
+            expected_created = threat_info.get("create_time")
+            if expected_path and expected_path != actual_path:
+                return self._skipped("PID 已复用或进程路径发生变化")
+            if expected_created and abs(proc.create_time() - float(expected_created)) > 0.01:
+                return self._skipped("PID 已复用，创建时间不一致")
             proc.terminate()
-            
-            # 等待进程终止
             try:
                 proc.wait(timeout=5)
-                return True
             except psutil.TimeoutExpired:
-                # 如果进程没有终止，强制终止
-                if self.verbose:
-                    print(f"进程 {proc.name()} 未在5秒内终止，尝试强制终止...")
                 proc.kill()
-                
-                try:
-                    proc.wait(timeout=5)
-                    return True
-                except psutil.TimeoutExpired:
-                    if self.verbose:
-                        print(f"无法强制终止进程 {proc.name()}")
-                    return False
-                    
-        except psutil.AccessDenied:
-            if self.verbose:
-                print(f"没有权限终止进程 {proc.name()}")
-            return False
-        except Exception as e:
-            if self.verbose:
-                print(f"终止进程时出错: {e}")
-            return False
-    
+                proc.wait(timeout=5)
+            return {
+                "type": "process", "action": "terminated", "pid": pid,
+                "name": name, "path": actual_path,
+                "detail": f"已终止确认恶意进程: {name} (PID: {pid})", "success": True,
+            }
+        except psutil.NoSuchProcess:
+            return self._skipped(f"进程 {pid} 已退出")
+        except Exception as exc:
+            return {
+                "type": "process", "action": "error", "pid": pid,
+                "detail": f"终止进程失败: {exc}", "success": False,
+            }
+
+    @staticmethod
+    def _skipped(detail):
+        return {"type": "process", "action": "skipped", "detail": detail,
+                "success": False, "skipped": True}
+
     def clean_all(self):
-        """清除所有可疑进程"""
-        results = []
-        
-        if not PSUTIL_AVAILABLE:
-            if self.verbose:
-                print("[警告] psutil未安装，无法清除进程")
-            return results
-        
-        # 获取所有进程
-        for proc in psutil.process_iter(['pid', 'name', 'exe']):
-            try:
-                # 检查进程是否可疑
-                if self.is_suspicious_process(proc):
-                    result = self.clean_process({
-                        'pid': proc.info['pid'],
-                        'name': proc.info['name'],
-                        'path': proc.info['exe']
-                    })
-                    results.append(result)
-                    
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-        
-        return results
-    
-    def is_suspicious_process(self, proc):
-        """检查是否是可疑进程"""
-        try:
-            proc_name = proc.info['name']
-            proc_path = proc.info['exe']
-            
-            # 检查进程名称
-            suspicious_names = ['银狐', 'silverfox', 'silver_fox']
-            for name in suspicious_names:
-                if name in proc_name.lower():
-                    return True
-            
-            # 检查进程路径
-            if proc_path:
-                suspicious_paths = ['Temp', 'AppData', 'Downloads']
-                for path in suspicious_paths:
-                    if path in proc_path:
-                        return True
-            
-            return False
-            
-        except Exception:
-            return False
-    
-    def terminate_process_by_name(self, name):
-        """根据名称终止进程"""
-        results = []
-        
-        for proc in psutil.process_iter(['pid', 'name']):
-            if proc.info['name'] == name:
-                result = self.clean_process({
-                    'pid': proc.info['pid'],
-                    'name': proc.info['name']
-                })
-                results.append(result)
-        
-        return results
-    
-    def terminate_process_by_path(self, path):
-        """根据路径终止进程"""
-        results = []
-        
-        for proc in psutil.process_iter(['pid', 'name', 'exe']):
-            if proc.info['exe'] and proc.info['exe'].startswith(path):
-                result = self.clean_process({
-                    'pid': proc.info['pid'],
-                    'name': proc.info['name'],
-                    'path': proc.info['exe']
-                })
-                results.append(result)
-        
-        return results
+        return [self._skipped("必须先扫描，并根据已确认的扫描结果处理进程")]
+
+    def terminate_process(self, proc):
+        return bool(self.clean_process({
+            "pid": proc.pid, "path": proc.exe(), "create_time": proc.create_time(),
+            "confidence": "confirmed", "remediable": True,
+        }).get("success"))

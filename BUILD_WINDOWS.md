@@ -1,99 +1,33 @@
-# 银狐病毒专杀工具 - Windows打包说明
+# Windows 构建说明
 
-## 快速打包（推荐）
+## 本地构建
 
-### 方法1：使用批处理脚本（最简单）
+要求 Windows 10/11、Python 3.10+，并建议从干净虚拟环境构建。
 
-1. 确保已安装 Python 3.8+
-2. 双击运行 `build_windows.bat`
-3. 等待打包完成
-4. 在 `dist` 目录下找到生成的exe文件
-
-### 方法2：手动打包
-
-```bash
-# 1. 安装依赖
-pip install -r requirements.txt
-pip install pyinstaller
-
-# 2. 打包CLI版本
-pyinstaller --onefile --name SilverFoxKiller main.py
-
-# 3. 打包GUI版本
-pyinstaller --onefile --windowed --name SilverFoxKillerGUI gui.py
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+.\build_windows.ps1 -Python .\.venv\Scripts\python.exe
 ```
 
-## 输出文件
+脚本会依次安装 `requirements-dev.txt`、运行安全测试、构建两个单文件 EXE，并生成 `dist\SHA256SUMS.txt`。重复构建前请关闭已启动的 GUI，否则 Windows 会锁定旧 EXE。
 
-打包完成后，在 `dist` 目录下会生成：
+输出：
 
-- `SilverFoxKiller.exe` - 命令行版本（需要在命令行中运行）
-- `SilverFoxKillerGUI.exe` - 图形界面版本（双击即可运行）
+- `dist\SilverFoxKiller.exe`
+- `dist\SilverFoxKillerGUI.exe`
+- `dist\SHA256SUMS.txt`
 
-## 使用方法
+## GitHub Actions
 
-### 图形界面版本（推荐）
+`.github/workflows/build.yml` 支持：
 
-1. 双击 `SilverFoxKillerGUI.exe`
-2. 点击"扫描系统"按钮
-3. 查看扫描结果
-4. 点击"清除病毒"按钮
-5. 点击"修复系统"按钮
+- 手动触发 `workflow_dispatch`；
+- 推送 `v*` 标签时自动构建并创建 Release；
+- 发布 CLI、GUI 和 SHA-256 校验文件。
 
-### 命令行版本
+## 发布建议
 
-```bash
-# 扫描系统
-SilverFoxKiller.exe scan
+正式分发前建议增加 Authenticode 代码签名，并在隔离的 Windows 10/11 虚拟机验证：普通用户扫描、管理员扫描、隔离/恢复、UAC、中文用户名和无网络环境。
 
-# 清除病毒
-SilverFoxKiller.exe clean
-
-# 修复系统
-SilverFoxKiller.exe repair
-
-# 完整处理（扫描+清除+修复）
-SilverFoxKiller.exe full
-```
-
-## 注意事项
-
-1. **管理员权限**：某些操作需要管理员权限，右键exe选择"以管理员身份运行"
-2. **杀毒软件**：打包后的exe可能会被杀毒软件误报，请添加信任
-3. **Windows Defender**：如果被拦截，请在Windows Defender中添加排除项
-4. **文件大小**：打包后的exe约10-15MB
-
-## 常见问题
-
-### Q: 打包失败怎么办？
-
-A: 确保已安装Python 3.8+和pip，然后运行：
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-pip install pyinstaller
-```
-
-### Q: exe被杀毒软件删除怎么办？
-
-A: 这是误报，请在杀毒软件中添加信任或排除项。
-
-### Q: 运行时报错"缺少DLL"怎么办？
-
-A: 尝试安装Visual C++ Redistributable：
-https://aka.ms/vs/17/release/vc_redist.x64.exe
-
-### Q: 如何创建便携版？
-
-A: 使用 `--onefile` 参数会生成单个exe文件，可以直接复制使用。
-
-## 技术说明
-
-- 使用 PyInstaller 打包
-- 支持 Python 3.8+
-- 依赖 psutil 库
-- GUI使用tkinter（Python内置）
-
-## 免责声明
-
-本工具仅供安全研究和防护使用。使用本工具所造成的任何后果，开发者不承担责任。
+PyInstaller 单文件程序可能触发启发式告警。不要建议用户关闭杀毒软件或添加排除项；应提供源码、可复现构建、哈希和代码签名来降低供应链风险。

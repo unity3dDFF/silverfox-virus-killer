@@ -1,174 +1,119 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-进程扫描模块
-Process Scanner Module
-"""
+"""Running process scanner with correlated evidence."""
+
+from __future__ import annotations
+
+import os
 
 try:
     import psutil
     PSUTIL_AVAILABLE = True
 except ImportError:
+    psutil = None
     PSUTIL_AVAILABLE = False
 
-import os
-from ioc import MaliciousProcesses
+from ioc import MaliciousHashes, MaliciousProcesses
+from scanner.file_scanner import FileScanner
+
 
 class ProcessScanner:
-    """进程扫描器"""
-    
+    SCRIPT_HOSTS = {"powershell.exe", "pwsh.exe", "wscript.exe", "cscript.exe", "mshta.exe"}
+
     def __init__(self, verbose=False):
         self.verbose = verbose
         self.malicious_processes = MaliciousProcesses()
-        
-        # 可疑进程特征
-        self.suspicious_characteristics = {
-            'suspicious_paths': [
-                r"C:\Temp",
-                r"C:\Windows\Temp",
-                r"C:\Users\*\AppData\Local\Temp"
-            ],
-            'suspicious_parents': [
-                "explorer.exe",
-                "svchost.exe",
-                "services.exe"
-            ]
-        }
-    
+        self.malicious_hashes = MaliciousHashes()
+        self.file_hasher = FileScanner(verbose=verbose, scan_paths=[])
+        self._hash_cache = {}
+
     def scan(self):
-        """扫描进程"""
-        results = []
-        
         if not PSUTIL_AVAILABLE:
-            if self.verbose:
-                print("[警告] psutil未安装，跳过进程扫描")
-            return results
-        
-        # 获取所有进程
-        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'create_time']):
+            return []
+        results = []
+        for proc in psutil.process_iter(["pid", "name", "exe", "cmdline", "create_time"]):
             try:
-                # 检查进程是否可疑
-                if self.is_suspicious_process(proc):
-                    results.append({
-                        'type': 'process',
-                        'severity': 'high',
-                        'pid': proc.info['pid'],
-                        'name': proc.info['name'],
-                        'path': proc.info['exe'],
-                        'cmdline': proc.info['cmdline'],
-                        'detail': f'可疑进程: {proc.info["name"]}',
-                        'action': 'recommend_terminate'
-                    })
-                
-                # 检查进程是否是恶意进程
-                elif self.is_malicious_process(proc):
-                    results.append({
-                        'type': 'process',
-                        'severity': 'critical',
-                        'pid': proc.info['pid'],
-                        'name': proc.info['name'],
-                        'path': proc.info['exe'],
-                        'cmdline': proc.info['cmdline'],
-                        'detail': f'恶意进程: {proc.info["name"]}',
-                        'action': 'recommend_terminate'
-                    })
-                    
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-        
+                result = self._classify(proc)
+                if result:
+                    results.append(result)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, OSError):
+                continue
         return results
-    
+
+    def _classify(self, proc):
+        info = proc.info
+        name = (info.get("name") or "").lower()
+        path = info.get("exe") or ""
+        cmdline = " ".join(info.get("cmdline") or [])
+
+        if path not in self._hash_cache:
+            self._hash_cache[path] = self.file_hasher.calculate_file_hashes(path) if path else {}
+        hashes = self._hash_cache[path]
+        matched = self.file_hasher.match_malicious_hash(hashes)
+        if matched:
+            return self._result(
+                info, "critical", "confirmed", "known_process_hash",
+                f"运行中进程命中已知恶意{matched[0].upper()}哈希: {matched[1]}", True,
+                sha256=hashes.get("sha256"),
+            )
+
+        known_names = {item.lower() for item in self.malicious_processes.get_process_names()}
+        if name in known_names:
+            return self._result(
+                info, "medium", "medium", "known_process_name",
+                f"进程名与已知 IOC 相同，需结合路径/签名复核: {name}", False,
+                sha256=hashes.get("sha256"),
+            )
+
+        if self.is_suspicious_process(proc):
+            return self._result(
+                info, "low", "low", "script_host_in_user_path",
+                "脚本宿主或可执行文件从用户临时位置运行（仅线索）", False,
+                sha256=hashes.get("sha256"),
+            )
+        return None
+
+    @staticmethod
+    def _result(info, severity, confidence, detector, detail, remediable, sha256=None):
+        return {
+            "type": "process", "severity": severity, "confidence": confidence,
+            "pid": info.get("pid"), "name": info.get("name"), "path": info.get("exe"),
+            "cmdline": info.get("cmdline"), "create_time": info.get("create_time"),
+            "sha256": sha256, "detail": detail, "detector": detector,
+            "action": "recommend_terminate" if remediable else "recommend_investigate",
+            "remediable": remediable,
+        }
+
     def is_suspicious_process(self, proc):
-        """检查是否是可疑进程"""
-        try:
-            # 检查进程路径
-            proc_path = proc.info['exe']
-            if proc_path:
-                for suspicious_path in self.suspicious_characteristics['suspicious_paths']:
-                    if '*' in suspicious_path:
-                        # 处理通配符路径
-                        import glob
-                        for expanded_path in glob.glob(suspicious_path):
-                            if proc_path.startswith(expanded_path):
-                                return True
-                    else:
-                        if proc_path.startswith(suspicious_path):
-                            return True
-            
-            # 检查父进程
-            try:
-                parent = proc.parent()
-                if parent and parent.name() in self.suspicious_characteristics['suspicious_parents']:
-                    # 检查进程是否在可疑位置
-                    if proc_path and any(suspicious in proc_path for suspicious in ['Temp', 'AppData']):
-                        return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-            
-            # 检查命令行参数
-            cmdline = proc.info['cmdline']
-            if cmdline:
-                cmdline_str = ' '.join(cmdline).lower()
-                suspicious_patterns = [
-                    'powershell',
-                    'cmd.exe',
-                    'wscript',
-                    'cscript',
-                    'mshta',
-                    'rundll32'
-                ]
-                for pattern in suspicious_patterns:
-                    if pattern in cmdline_str:
-                        return True
-            
-            return False
-            
-        except Exception as e:
-            if self.verbose:
-                print(f"检查进程时出错: {e}")
-            return False
-    
+        info = proc.info
+        name = (info.get("name") or "").lower()
+        path = os.path.normcase(info.get("exe") or "")
+        cmdline = " ".join(info.get("cmdline") or []).lower()
+        user_roots = [
+            os.environ.get("TEMP"), os.environ.get("TMP"), os.environ.get("APPDATA"),
+            os.environ.get("LOCALAPPDATA"), str(os.path.expanduser("~/Downloads")),
+        ]
+        in_user_location = any(
+            path.startswith(os.path.normcase(os.path.abspath(root)) + os.sep)
+            for root in user_roots if root
+        )
+        return in_user_location and (name in self.SCRIPT_HOSTS or any(
+            token in cmdline for token in ("-encodedcommand", "frombase64string", "downloadstring(")
+        ))
+
     def is_malicious_process(self, proc):
-        """检查是否是恶意进程"""
-        try:
-            # 检查进程名称
-            proc_name = proc.info['name']
-            if proc_name in self.malicious_processes.get_process_names():
-                return True
-            
-            # 检查进程路径
-            proc_path = proc.info['exe']
-            if proc_path:
-                malicious_paths = self.malicious_processes.get_process_paths()
-                for malicious_path in malicious_paths:
-                    if proc_path.startswith(malicious_path):
-                        return True
-            
-            return False
-            
-        except Exception as e:
-            if self.verbose:
-                print(f"检查进程时出错: {e}")
-            return False
-    
+        result = self._classify(proc)
+        return bool(result and result.get("confidence") == "confirmed")
+
     def get_process_by_name(self, name):
-        """根据名称获取进程"""
-        processes = []
-        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
-            if proc.info['name'] == name:
-                processes.append(proc)
-        return processes
-    
+        if not PSUTIL_AVAILABLE:
+            return []
+        return [p for p in psutil.process_iter(["pid", "name", "exe", "cmdline"])
+                if p.info.get("name") == name]
+
     def get_process_by_pid(self, pid):
-        """根据PID获取进程"""
         try:
-            return psutil.Process(pid)
+            return psutil.Process(pid) if PSUTIL_AVAILABLE else None
         except psutil.NoSuchProcess:
             return None
-    
+
     def is_process_running(self, name):
-        """检查进程是否在运行"""
-        for proc in psutil.process_iter(['name']):
-            if proc.info['name'] == name:
-                return True
-        return False
+        return bool(self.get_process_by_name(name))

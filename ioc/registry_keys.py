@@ -15,40 +15,14 @@ class MaliciousRegistryKeys:
             "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run": [
                 "SilverFox",
                 "WinUpdateService",
-                "WindowsUpdate",
-                "WindowsDefender",
-                "WindowsFirewall",
-                "WindowsSecurity",
-                "SystemUpdate",
-                "NetworkService",
-                "svchost",
                 "Microsoftdata",
             ],
             "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run": [
                 "SilverFox",
                 "WinUpdateService",
-                "WindowsUpdate",
-                "WindowsDefender",
-                "WindowsFirewall",
-                "WindowsSecurity",
-                "SystemUpdate",
-                "NetworkService",
-                "svchost",
                 "Microsoftdata",
             ],
             
-            # ========== AppInit_DLLs ==========
-            "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows": [
-                "AppInit_DLLs",
-            ],
-            
-            # ========== Winlogon劫持 ==========
-            "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon": [
-                "Shell",
-                "Userinit",
-                "Winlogon",
-                "GPExtensions",
-            ],
             
             # ========== 服务注册 ==========
             "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services": [

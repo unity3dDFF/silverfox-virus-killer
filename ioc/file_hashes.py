@@ -167,6 +167,11 @@ class MaliciousHashes:
             "32407207e9e9a0948d167dca96c41d1a",
             "d17caf6f5d6ba3393a3a865d1c43c3d2",
         ]
+        valid_lengths = {32, 40, 64}
+        self.hashes = list(dict.fromkeys(
+            value.lower() for value in self.hashes
+            if len(value) in valid_lengths and all(char in '0123456789abcdefABCDEF' for char in value)
+        ))
     
     def get_hashes(self):
         """获取所有恶意文件哈希"""
@@ -184,7 +189,7 @@ class MaliciousHashes:
     
     def is_malicious(self, file_hash):
         """检查文件哈希是否是恶意的"""
-        return file_hash.lower() in [h.lower() for h in self.hashes]
+        return file_hash.lower() in self.hashes
     
     def get_hash_count(self):
         """获取恶意文件哈希数量"""

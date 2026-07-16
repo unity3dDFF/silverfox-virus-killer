@@ -1,1170 +1,659 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-银狐病毒专杀工具 - 图形化界面
-SilverFox Virus Killer - GUI
-"""
+"""Modern Tkinter interface for SilverFox Virus Killer."""
 
-import sys
-import os
-import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, filedialog, simpledialog
-import threading
-import importlib
-import time
-import subprocess
-import platform
+from __future__ import annotations
+
+import ctypes
 import json
+import os
+import subprocess
+import threading
+import tkinter as tk
+from datetime import datetime
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
-# 添加项目根目录到Python路径
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cleaner import SilverFoxCleaner
+from history import ScanHistory
+from quarantine import QuarantineManager, default_data_dir
+from repair import SystemRepair
+from reports import ReportGenerator
+from scanner import SilverFoxScanner
+from version import __version__
 
 
 class SilverFoxKillerGUI:
-    """银狐病毒专杀工具图形化界面"""
-    
+    BG = "#F3F6FA"
+    SURFACE = "#FFFFFF"
+    NAVY = "#10243E"
+    TEXT = "#1D2939"
+    MUTED = "#667085"
+    BLUE = "#2563EB"
+    BLUE_HOVER = "#1D4ED8"
+    GREEN = "#15803D"
+    AMBER = "#B45309"
+    RED = "#B42318"
+    BORDER = "#DCE3EC"
+
     def __init__(self, root):
         self.root = root
-        self.root.title("银狐病毒专杀工具 v1.0.3")
-        self.root.geometry("1000x700")
-        self.root.resizable(True, True)
-        
-        # 设置主题颜色
-        self.bg_color = "#f0f0f0"
-        self.accent_color = "#007bff"
-        self.success_color = "#28a745"
-        self.warning_color = "#ffc107"
-        self.danger_color = "#dc3545"
-        
-        # 配置根窗口
-        self.root.configure(bg=self.bg_color)
-        
-        # 白名单文件
-        self.whitelist_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whitelist.json")
+        self.root.title(f"银狐病毒专杀工具 v{__version__}")
+        self.root.geometry("1180x760")
+        self.root.minsize(980, 660)
+        self.root.configure(bg=self.BG)
+
+        self.scanner = SilverFoxScanner(verbose=False)
+        self.cleaner = SilverFoxCleaner(verbose=False)
+        self.repairer = SystemRepair(verbose=False)
+        self.reporter = ReportGenerator(verbose=False)
+        self.quarantine = QuarantineManager()
+        self.history = ScanHistory()
+        self.whitelist_path = default_data_dir() / "whitelist.json"
         self.whitelist = self._load_whitelist()
-        
-        # 初始化模块
-        self.scanner = None
-        self.cleaner = None
-        self.repairer = None
-        self.report_gen = None
-        self.history = None
-        
-        # 创建界面
-        self.create_widgets()
-        
-        # 初始化模块
-        self.init_modules()
-    
+        self.last_scan_results = []
+        self.busy = False
+
+        self._configure_styles()
+        self._build_layout()
+        self._set_summary(0, 0, 0, "就绪")
+        self._log("防护引擎已就绪。扫描不会上传文件，启发式线索不会自动处置。", "info")
+
+    def _configure_styles(self):
+        style = ttk.Style(self.root)
+        style.theme_use("clam")
+        style.configure("App.TFrame", background=self.BG)
+        style.configure("Card.TFrame", background=self.SURFACE)
+        style.configure("Header.TLabel", background=self.NAVY, foreground="white",
+                        font=("Microsoft YaHei UI", 20, "bold"))
+        style.configure("HeaderSub.TLabel", background=self.NAVY, foreground="#C7D7EA",
+                        font=("Microsoft YaHei UI", 9))
+        style.configure("CardTitle.TLabel", background=self.SURFACE, foreground=self.MUTED,
+                        font=("Microsoft YaHei UI", 9))
+        style.configure("CardValue.TLabel", background=self.SURFACE, foreground=self.TEXT,
+                        font=("Microsoft YaHei UI", 20, "bold"))
+        style.configure("Section.TLabel", background=self.BG, foreground=self.TEXT,
+                        font=("Microsoft YaHei UI", 11, "bold"))
+        style.configure("Primary.TButton", background=self.BLUE, foreground="white",
+                        borderwidth=0, padding=(18, 10), font=("Microsoft YaHei UI", 9, "bold"))
+        style.map("Primary.TButton", background=[("active", self.BLUE_HOVER), ("disabled", "#9AB5E8")])
+        style.configure("Secondary.TButton", background=self.SURFACE, foreground=self.TEXT,
+                        bordercolor=self.BORDER, borderwidth=1, padding=(14, 9),
+                        font=("Microsoft YaHei UI", 9))
+        style.map("Secondary.TButton", background=[("active", "#EAF0F7")])
+        style.configure("Danger.TButton", background="#FEE4E2", foreground=self.RED,
+                        borderwidth=0, padding=(14, 9), font=("Microsoft YaHei UI", 9, "bold"))
+        style.configure("Treeview", background=self.SURFACE, fieldbackground=self.SURFACE,
+                        foreground=self.TEXT, rowheight=31, borderwidth=0,
+                        font=("Microsoft YaHei UI", 9))
+        style.configure("Treeview.Heading", background="#EAF0F7", foreground=self.TEXT,
+                        relief="flat", padding=(8, 8), font=("Microsoft YaHei UI", 9, "bold"))
+        style.map("Treeview", background=[("selected", "#DCE9FF")], foreground=[("selected", self.TEXT)])
+        style.configure("Scan.Horizontal.TProgressbar", troughcolor="#DCE3EC",
+                        background=self.BLUE, borderwidth=0, lightcolor=self.BLUE, darkcolor=self.BLUE)
+
+    def _build_layout(self):
+        header = tk.Frame(self.root, bg=self.NAVY, height=92)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        title_box = tk.Frame(header, bg=self.NAVY)
+        title_box.pack(side=tk.LEFT, padx=28, pady=17)
+        ttk.Label(title_box, text="银狐病毒专杀工具", style="Header.TLabel").pack(anchor=tk.W)
+        ttk.Label(title_box, text="Windows 证据分级检测 · 默认隔离 · 支持恢复",
+                  style="HeaderSub.TLabel").pack(anchor=tk.W, pady=(3, 0))
+
+        badge_text = "管理员模式" if self._is_admin() else "普通权限"
+        badge_color = "#166534" if self._is_admin() else "#92400E"
+        tk.Label(header, text=badge_text, bg=badge_color, fg="white",
+                 font=("Microsoft YaHei UI", 9, "bold"), padx=12, pady=6).pack(
+                     side=tk.RIGHT, padx=(8, 28))
+        tk.Label(header, text=f"v{__version__}", bg="#203B5D", fg="#DCE8F5",
+                 font=("Segoe UI", 9, "bold"), padx=10, pady=6).pack(side=tk.RIGHT)
+
+        main = ttk.Frame(self.root, style="App.TFrame", padding=(24, 18, 24, 16))
+        main.pack(fill=tk.BOTH, expand=True)
+
+        cards = ttk.Frame(main, style="App.TFrame")
+        cards.pack(fill=tk.X)
+        for column in range(4):
+            cards.columnconfigure(column, weight=1, uniform="stats")
+        self.summary_labels = {}
+        for column, (key, title) in enumerate((
+            ("findings", "检测线索"), ("confirmed", "确认 IOC"),
+            ("handled", "已处置"), ("state", "当前状态"),
+        )):
+            card = ttk.Frame(cards, style="Card.TFrame", padding=(18, 13))
+            card.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 6,
+                                                                 0 if column == 3 else 6))
+            ttk.Label(card, text=title, style="CardTitle.TLabel").pack(anchor=tk.W)
+            label = ttk.Label(card, text="0", style="CardValue.TLabel")
+            label.pack(anchor=tk.W, pady=(4, 0))
+            self.summary_labels[key] = label
+
+        actions = ttk.Frame(main, style="App.TFrame")
+        actions.pack(fill=tk.X, pady=(16, 12))
+        self.scan_button = ttk.Button(actions, text="开始扫描", style="Primary.TButton",
+                                      command=self.start_scan)
+        self.scan_button.pack(side=tk.LEFT)
+        self.clean_button = ttk.Button(actions, text="隔离确认项", style="Danger.TButton",
+                                       command=self.start_clean, state=tk.DISABLED)
+        self.clean_button.pack(side=tk.LEFT, padx=8)
+        self.repair_button = ttk.Button(actions, text="安全修复", style="Secondary.TButton",
+                                        command=self.start_repair)
+        self.repair_button.pack(side=tk.LEFT)
+        self.full_button = ttk.Button(actions, text="扫描并修复", style="Secondary.TButton",
+                                      command=self.start_full)
+        self.full_button.pack(side=tk.LEFT, padx=8)
+        self.quarantine_button = ttk.Button(actions, text="隔离区", style="Secondary.TButton",
+                                            command=self.show_quarantine)
+        self.quarantine_button.pack(side=tk.RIGHT)
+        self.history_button = ttk.Button(actions, text="历史记录", style="Secondary.TButton",
+                                         command=self.show_history)
+        self.history_button.pack(side=tk.RIGHT, padx=8)
+        self.whitelist_button = ttk.Button(actions, text="白名单", style="Secondary.TButton",
+                                           command=self.show_whitelist)
+        self.whitelist_button.pack(side=tk.RIGHT)
+        self.export_button = ttk.Button(actions, text="导出报告", style="Secondary.TButton",
+                                        command=self.export_report, state=tk.DISABLED)
+        self.export_button.pack(side=tk.RIGHT, padx=8)
+
+        progress_box = ttk.Frame(main, style="Card.TFrame", padding=(16, 11))
+        progress_box.pack(fill=tk.X, pady=(0, 12))
+        progress_box.columnconfigure(0, weight=1)
+        progress_box.columnconfigure(1, minsize=48)
+        progress_status_slot = ttk.Frame(
+            progress_box, style="Card.TFrame", width=760, height=20)
+        progress_status_slot.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        progress_status_slot.grid_propagate(False)
+        self.progress_text = ttk.Label(
+            progress_status_slot, text="等待开始", style="CardTitle.TLabel", anchor=tk.W)
+        self.progress_text.pack(fill=tk.BOTH, expand=True)
+        self.progress_value = ttk.Label(
+            progress_box, text="0%", style="CardTitle.TLabel",
+            width=5, anchor=tk.E)
+        self.progress_value.grid(row=0, column=1, sticky=tk.E)
+        self.progress = ttk.Progressbar(progress_box, style="Scan.Horizontal.TProgressbar",
+                                        mode="determinate", maximum=100)
+        self.progress.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(7, 0))
+
+        pane = ttk.Panedwindow(main, orient=tk.VERTICAL)
+        pane.pack(fill=tk.BOTH, expand=True)
+
+        findings_card = ttk.Frame(pane, style="Card.TFrame", padding=(0, 0, 0, 0))
+        pane.add(findings_card, weight=4)
+        columns = ("severity", "confidence", "type", "location", "detail")
+        self.tree = ttk.Treeview(findings_card, columns=columns, show="headings")
+        headings = {"severity": "风险", "confidence": "置信度", "type": "类型",
+                    "location": "位置 / 远端", "detail": "检测依据"}
+        widths = {"severity": 72, "confidence": 80, "type": 75,
+                  "location": 310, "detail": 470}
+        for column in columns:
+            self.tree.heading(column, text=headings[column])
+            self.tree.column(column, width=widths[column], minwidth=60,
+                             stretch=column in {"location", "detail"})
+        self.tree.tag_configure("critical", foreground=self.RED)
+        self.tree.tag_configure("high", foreground="#C2410C")
+        self.tree.tag_configure("medium", foreground=self.AMBER)
+        self.tree.tag_configure("low", foreground=self.MUTED)
+        self.tree.bind("<Button-3>", self._show_finding_menu)
+        self.finding_menu = tk.Menu(self.root, tearoff=0)
+        self.finding_menu.add_command(label="复制位置", command=self._copy_selected_location)
+        self.finding_menu.add_command(label="在资源管理器中显示", command=self._reveal_selected)
+        self.finding_menu.add_separator()
+        self.finding_menu.add_command(label="加入白名单", command=self._whitelist_selected)
+        scrollbar = ttk.Scrollbar(findings_card, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        log_card = ttk.Frame(pane, style="Card.TFrame", padding=(12, 8))
+        pane.add(log_card, weight=1)
+        log_header = ttk.Frame(log_card, style="Card.TFrame")
+        log_header.pack(fill=tk.X)
+        ttk.Label(log_header, text="运行日志", style="CardTitle.TLabel").pack(side=tk.LEFT)
+        ttk.Button(log_header, text="清空", style="Secondary.TButton",
+                   command=lambda: self.log_text.delete("1.0", tk.END)).pack(side=tk.RIGHT)
+        self.log_text = scrolledtext.ScrolledText(
+            log_card, height=6, wrap=tk.WORD, borderwidth=0, bg="#F8FAFC",
+            fg=self.TEXT, insertbackground=self.TEXT, font=("Consolas", 9), padx=8, pady=6)
+        self.log_text.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+        self.log_text.tag_configure("info", foreground=self.MUTED)
+        self.log_text.tag_configure("success", foreground=self.GREEN)
+        self.log_text.tag_configure("warning", foreground=self.AMBER)
+        self.log_text.tag_configure("error", foreground=self.RED)
+
+    @staticmethod
+    def _is_admin():
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
+
     def _load_whitelist(self):
-        """加载白名单"""
         try:
-            if os.path.exists(self.whitelist_file):
-                with open(self.whitelist_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-        except:
-            pass
-        return []
-    
+            data = json.loads(self.whitelist_path.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else []
+        except (OSError, json.JSONDecodeError):
+            return []
+
     def _save_whitelist(self):
-        """保存白名单"""
-        try:
-            with open(self.whitelist_file, 'w', encoding='utf-8') as f:
-                json.dump(self.whitelist, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            self.log(f"保存白名单失败: {e}", "error")
-    
-    def create_widgets(self):
-        """创建界面组件"""
-        # 主框架
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # 配置网格权重
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(1, weight=1)
-        
-        # 标题
-        title_frame = ttk.Frame(main_frame)
-        title_frame.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=(tk.W, tk.E))
-        
-        title_label = ttk.Label(title_frame, text="银狐病毒专杀工具", font=("Arial", 24, "bold"))
-        title_label.pack(side=tk.LEFT)
-        
-        version_label = ttk.Label(title_frame, text="v1.0.3", font=("Arial", 12))
-        version_label.pack(side=tk.LEFT, padx=(10, 0))
-        
-        # 使用 Notebook (标签页) 来组织内容
-        self.notebook = ttk.Notebook(main_frame)
-        self.notebook.grid(row=1, column=0, columnspan=2, sticky=(tk.N, tk.S, tk.E, tk.W))
-        
-        # ===== 标签页1: 扫描清理 =====
-        self.scan_tab = ttk.Frame(self.notebook, padding="5")
-        self.notebook.add(self.scan_tab, text="🔍 扫描清理")
-        self._create_scan_tab()
-        
-        # ===== 标签页2: 历史记录 =====
-        self.history_tab = ttk.Frame(self.notebook, padding="5")
-        self.notebook.add(self.history_tab, text="📋 历史记录")
-        self._create_history_tab()
-        
-        # ===== 标签页3: 白名单管理 =====
-        self.whitelist_tab = ttk.Frame(self.notebook, padding="5")
-        self.notebook.add(self.whitelist_tab, text="✅ 白名单管理")
-        self._create_whitelist_tab()
-    
-    def _create_scan_tab(self):
-        """创建扫描清理标签页"""
-        self.scan_tab.columnconfigure(1, weight=1)
-        self.scan_tab.rowconfigure(0, weight=1)
-        
-        # 左侧控制面板
-        control_frame = ttk.LabelFrame(self.scan_tab, text="操作控制", padding="10")
-        control_frame.grid(row=0, column=0, padx=(0, 10), sticky=(tk.N, tk.S))
-        
-        # 扫描按钮
-        self.scan_btn = ttk.Button(control_frame, text="🔍 扫描系统", 
-                                   command=self.start_scan, width=15)
-        self.scan_btn.grid(row=0, column=0, pady=5, sticky=(tk.W, tk.E))
-        
-        # 清除按钮
-        self.clean_btn = ttk.Button(control_frame, text="🧹 清除病毒", 
-                                    command=self.start_clean, width=15, state=tk.DISABLED)
-        self.clean_btn.grid(row=1, column=0, pady=5, sticky=(tk.W, tk.E))
-        
-        # 修复按钮
-        self.repair_btn = ttk.Button(control_frame, text="🔧 修复系统", 
-                                     command=self.start_repair, width=15, state=tk.DISABLED)
-        self.repair_btn.grid(row=2, column=0, pady=5, sticky=(tk.W, tk.E))
-        
-        # 完整处理按钮
-        self.full_btn = ttk.Button(control_frame, text="⚡ 完整处理", 
-                                   command=self.start_full, width=15)
-        self.full_btn.grid(row=3, column=0, pady=5, sticky=(tk.W, tk.E))
-        
-        # 分隔线
-        ttk.Separator(control_frame, orient=tk.HORIZONTAL).grid(row=4, column=0, 
-                                                                 pady=10, sticky=(tk.W, tk.E))
-        
-        # 进度条
-        self.progress_label = ttk.Label(control_frame, text="就绪")
-        self.progress_label.grid(row=5, column=0, pady=(5, 0))
-        
-        self.progress_bar = ttk.Progressbar(control_frame, mode='determinate', length=150)
-        self.progress_bar.grid(row=6, column=0, pady=5, sticky=(tk.W, tk.E))
-        
-        # 统计信息
-        stats_frame = ttk.LabelFrame(control_frame, text="统计信息", padding="5")
-        stats_frame.grid(row=7, column=0, pady=(10, 0), sticky=(tk.W, tk.E))
-        
-        self.threats_label = ttk.Label(stats_frame, text="威胁: 0")
-        self.threats_label.grid(row=0, column=0, sticky=tk.W)
-        
-        self.cleaned_label = ttk.Label(stats_frame, text="已清除: 0")
-        self.cleaned_label.grid(row=1, column=0, sticky=tk.W)
-        
-        self.repaired_label = ttk.Label(stats_frame, text="已修复: 0")
-        self.repaired_label.grid(row=2, column=0, sticky=tk.W)
-        
-        # 右侧结果显示区域
-        result_frame = ttk.LabelFrame(self.scan_tab, text="扫描结果 (右键可查看更多操作)", padding="5")
-        result_frame.grid(row=0, column=1, sticky=(tk.N, tk.S, tk.E, tk.W))
-        result_frame.columnconfigure(0, weight=1)
-        result_frame.rowconfigure(0, weight=1)
-        
-        # 结果树形视图
-        columns = ("类型", "严重性", "路径", "详情")
-        self.result_tree = ttk.Treeview(result_frame, columns=columns, show="headings", height=15)
-        
-        # 设置列标题
-        self.result_tree.heading("类型", text="类型")
-        self.result_tree.heading("严重性", text="严重性")
-        self.result_tree.heading("路径", text="路径")
-        self.result_tree.heading("详情", text="详情")
-        
-        # 设置列宽
-        self.result_tree.column("类型", width=80)
-        self.result_tree.column("严重性", width=80)
-        self.result_tree.column("路径", width=300)
-        self.result_tree.column("详情", width=250)
-        
-        # 添加滚动条
-        scrollbar = ttk.Scrollbar(result_frame, orient=tk.VERTICAL, command=self.result_tree.yview)
-        self.result_tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.result_tree.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        
-        # 绑定右键菜单
-        self.result_tree.bind("<Button-3>", self._show_context_menu)
-        self.result_tree.bind("<Double-1>", self._on_double_click)
-        
-        # 创建右键菜单
-        self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="📂 打开文件所在位置", command=self._open_file_location)
-        self.context_menu.add_command(label="📋 复制文件路径", command=self._copy_file_path)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="📋 复制完整路径", command=self._copy_full_path)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="➕ 添加到白名单", command=self._add_to_whitelist)
-        self.context_menu.add_command(label="🗑️ 删除文件", command=self._delete_file)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="🔍 在资源管理器中选择", command=self._reveal_in_explorer)
-        self.context_menu.add_command(label="📝 查看详细信息", command=self._view_details)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="📤 导出选中项", command=self._export_selected)
-        self.context_menu.add_command(label="📤 导出全部", command=self._export_all)
-        
-        # 底部日志区域
-        log_frame = ttk.LabelFrame(self.scan_tab, text="操作日志", padding="5")
-        log_frame.grid(row=1, column=0, columnspan=2, pady=(10, 0), sticky=(tk.N, tk.S, tk.E, tk.W))
-        log_frame.columnconfigure(0, weight=1)
-        log_frame.rowconfigure(0, weight=1)
-        
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=6, wrap=tk.WORD)
-        self.log_text.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-        
-        # 配置日志文本框标签
-        self.log_text.tag_configure("info", foreground="black")
-        self.log_text.tag_configure("success", foreground="green")
-        self.log_text.tag_configure("warning", foreground="orange")
-        self.log_text.tag_configure("error", foreground="red")
-    
-    def _create_history_tab(self):
-        """创建历史记录标签页"""
-        self.history_tab.columnconfigure(0, weight=1)
-        self.history_tab.rowconfigure(1, weight=1)
-        
-        # 顶部工具栏
-        toolbar_frame = ttk.Frame(self.history_tab)
-        toolbar_frame.grid(row=0, column=0, pady=(0, 5), sticky=(tk.W, tk.E))
-        
-        ttk.Button(toolbar_frame, text="🔄 刷新", command=self._refresh_history, width=10).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar_frame, text="🗑️ 清空历史", command=self._clear_history, width=10).pack(side=tk.LEFT, padx=2)
-        
-        # 筛选下拉框
-        ttk.Label(toolbar_frame, text="  筛选:").pack(side=tk.LEFT, padx=(10, 2))
-        self.history_filter = ttk.Combobox(toolbar_frame, values=["全部", "扫描", "清理", "修复", "完整处理"], 
-                                            state="readonly", width=10)
-        self.history_filter.set("全部")
-        self.history_filter.pack(side=tk.LEFT, padx=2)
-        self.history_filter.bind("<<ComboboxSelected>>", lambda e: self._refresh_history())
-        
-        # 统计标签
-        self.history_stats_label = ttk.Label(toolbar_frame, text="共 0 条记录")
-        self.history_stats_label.pack(side=tk.RIGHT, padx=5)
-        
-        # 历史记录列表
-        list_frame = ttk.Frame(self.history_tab)
-        list_frame.grid(row=1, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-        list_frame.columnconfigure(0, weight=1)
-        list_frame.rowconfigure(0, weight=1)
-        
-        columns = ("时间", "操作类型", "发现威胁数", "摘要")
-        self.history_tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=12)
-        
-        self.history_tree.heading("时间", text="时间")
-        self.history_tree.heading("操作类型", text="操作类型")
-        self.history_tree.heading("发现威胁数", text="发现威胁数")
-        self.history_tree.heading("摘要", text="摘要")
-        
-        self.history_tree.column("时间", width=160)
-        self.history_tree.column("操作类型", width=100)
-        self.history_tree.column("发现威胁数", width=100)
-        self.history_tree.column("摘要", width=400)
-        
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.history_tree.yview)
-        self.history_tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.history_tree.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        
-        # 绑定双击查看详情
-        self.history_tree.bind("<Double-1>", self._view_history_detail)
-        
-        # 创建历史记录右键菜单
-        self.history_context_menu = tk.Menu(self.root, tearoff=0)
-        self.history_context_menu.add_command(label="📝 查看详情", command=self._view_history_detail_menu)
-        self.history_context_menu.add_command(label="🔄 重新执行此扫描", command=self._replay_history)
-        self.history_context_menu.add_separator()
-        self.history_context_menu.add_command(label="🗑️ 删除此记录", command=self._delete_history_record)
-        
-        self.history_tree.bind("<Button-3>", self._show_history_context_menu)
-        
-        # 底部详情区域
-        detail_frame = ttk.LabelFrame(self.history_tab, text="记录详情", padding="5")
-        detail_frame.grid(row=2, column=0, pady=(5, 0), sticky=(tk.N, tk.S, tk.E, tk.W))
-        detail_frame.columnconfigure(0, weight=1)
-        detail_frame.rowconfigure(0, weight=1)
-        
-        self.history_detail_text = scrolledtext.ScrolledText(detail_frame, height=6, wrap=tk.WORD)
-        self.history_detail_text.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-    
-    def _create_whitelist_tab(self):
-        """创建白名单管理标签页"""
-        self.whitelist_tab.columnconfigure(0, weight=1)
-        self.whitelist_tab.rowconfigure(1, weight=1)
-        
-        # 顶部工具栏
-        toolbar_frame = ttk.Frame(self.whitelist_tab)
-        toolbar_frame.grid(row=0, column=0, pady=(0, 5), sticky=(tk.W, tk.E))
-        
-        ttk.Button(toolbar_frame, text="➕ 添加路径", command=self._add_whitelist_item, width=12).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar_frame, text="➖ 移除选中", command=self._remove_whitelist_item, width=12).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar_frame, text="🔄 刷新", command=self._refresh_whitelist, width=10).pack(side=tk.LEFT, padx=2)
-        
-        # 白名单列表
-        list_frame = ttk.Frame(self.whitelist_tab)
-        list_frame.grid(row=1, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-        list_frame.columnconfigure(0, weight=1)
-        list_frame.rowconfigure(0, weight=1)
-        
-        columns = ("序号", "路径", "添加时间", "备注")
-        self.whitelist_tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=12)
-        
-        self.whitelist_tree.heading("序号", text="序号")
-        self.whitelist_tree.heading("路径", text="路径")
-        self.whitelist_tree.heading("添加时间", text="添加时间")
-        self.whitelist_tree.heading("备注", text="备注")
-        
-        self.whitelist_tree.column("序号", width=60)
-        self.whitelist_tree.column("路径", width=500)
-        self.whitelist_tree.column("添加时间", width=150)
-        self.whitelist_tree.column("备注", width=200)
-        
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.whitelist_tree.yview)
-        self.whitelist_tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.whitelist_tree.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
-        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        
-        # 底部说明
-        info_frame = ttk.LabelFrame(self.whitelist_tab, text="说明", padding="5")
-        info_frame.grid(row=2, column=0, pady=(5, 0), sticky=(tk.W, tk.E))
-        
-        ttk.Label(info_frame, text="• 白名单中的文件/路径在扫描时将被忽略\n"
-                                    "• 可以是完整文件路径或目录路径\n"
-                                    "• 支持通配符 (如 C:\\Program Files\\*\\safe.exe)",
-                  foreground="gray").pack(anchor=tk.W)
-        
-        # 初始化白名单列表
-        self._refresh_whitelist()
-    
-    def init_modules(self):
-        """初始化模块"""
-        try:
-            # 检查psutil
-            try:
-                import psutil
-                self.log("psutil模块加载成功", "success")
-            except ImportError:
-                self.log("警告: psutil模块未安装，部分功能受限", "warning")
-            
-            from scanner import SilverFoxScanner
-            from cleaner import SilverFoxCleaner
-            修复_module = importlib.import_module('repair')
-            SystemRepair = 修复_module.SystemRepair
-            from reports import ReportGenerator
-            from history import ScanHistory
-            
-            self.scanner = SilverFoxScanner(verbose=True)
-            self.cleaner = SilverFoxCleaner(verbose=True)
-            self.repairer = SystemRepair(verbose=True)
-            self.report_gen = ReportGenerator(verbose=True)
-            self.history = ScanHistory()
-            
-            self.log("模块初始化成功", "success")
-            self.update_status("就绪")
-            
-            # 加载历史记录
-            self._refresh_history()
-            
-        except Exception as e:
-            self.log(f"模块初始化失败: {e}", "error")
-            self.log(f"错误详情: {str(e)}", "error")
-            messagebox.showerror("错误", f"模块初始化失败: {e}\n\n请确保已安装所有依赖：pip install psutil")
-    
-    def log(self, message, level="info"):
-        """添加日志"""
-        self.log_text.insert(tk.END, f"{message}\n", level)
-        self.log_text.see(tk.END)
-        self.root.update_idletasks()
-    
-    def update_status(self, status):
-        """更新状态"""
-        self.progress_label.config(text=status)
-        self.root.update_idletasks()
-    
-    def update_progress(self, value):
-        """更新进度条"""
-        self.progress_bar['value'] = value
-        self.root.update_idletasks()
-    
-    def clear_results(self):
-        """清空结果"""
-        for item in self.result_tree.get_children():
-            self.result_tree.delete(item)
-    
-    def add_result(self, result_type, severity, path, detail):
-        """添加结果"""
-        self.result_tree.insert("", tk.END, values=(result_type, severity, path, detail))
-    
-    # ========== 右键菜单功能 ==========
-    
-    def _show_context_menu(self, event):
-        """显示右键菜单"""
-        # 选中右键所在的行
-        item = self.result_tree.identify_row(event.y)
-        if item:
-            if item not in self.result_tree.selection():
-                self.result_tree.selection_set(item)
-            self.context_menu.tk_popup(event.x_root, event.y_root)
-    
-    def _on_double_click(self, event):
-        """双击打开文件所在位置"""
-        self._open_file_location()
-    
-    def _get_selected_paths(self):
-        """获取选中项的路径列表"""
-        paths = []
-        for item in self.result_tree.selection():
-            values = self.result_tree.item(item, "values")
-            if len(values) >= 3:
-                paths.append(values[2])  # 路径在第3列
-        return paths
-    
-    def _open_file_location(self):
-        """打开文件所在位置"""
-        paths = self._get_selected_paths()
-        if not paths:
-            messagebox.showinfo("提示", "请先选择一个文件")
-            return
-        
-        for path in paths:
-            if not path or path == "N/A":
-                continue
-            
-            # 获取目录
-            if os.path.isfile(path):
-                directory = os.path.dirname(path)
-            else:
-                directory = path
-            
-            if not os.path.exists(directory):
-                messagebox.showwarning("警告", f"路径不存在: {directory}")
-                continue
-            
-            # 跨平台打开文件管理器
-            system = platform.system()
-            try:
-                if system == "Darwin":  # macOS
-                    subprocess.run(["open", directory])
-                elif system == "Windows":
-                    # Windows: 如果是文件，选中它；如果是目录，打开目录
-                    if os.path.isfile(path):
-                        subprocess.run(["explorer", "/select,", path])
-                    else:
-                        subprocess.run(["explorer", directory])
-                else:  # Linux
-                    subprocess.run(["xdg-open", directory])
-            except Exception as e:
-                messagebox.showerror("错误", f"打开文件位置失败: {e}")
-    
-    def _copy_file_path(self):
-        """复制文件路径"""
-        paths = self._get_selected_paths()
-        if not paths:
-            messagebox.showinfo("提示", "请先选择一个文件")
-            return
-        
-        text = "\n".join(paths)
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.log(f"已复制 {len(paths)} 个文件路径到剪贴板", "success")
-    
-    def _copy_full_path(self):
-        """复制完整路径（包含类型和详情）"""
-        paths = []
-        for item in self.result_tree.selection():
-            values = self.result_tree.item(item, "values")
-            if len(values) >= 4:
-                paths.append(f"[{values[0]}] {values[2]} - {values[3]}")
-        
-        if not paths:
-            messagebox.showinfo("提示", "请先选择一项")
-            return
-        
-        text = "\n".join(paths)
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.log(f"已复制 {len(paths)} 条完整信息到剪贴板", "success")
-    
-    def _add_to_whitelist(self):
-        """添加到白名单"""
-        paths = self._get_selected_paths()
-        if not paths:
-            messagebox.showinfo("提示", "请先选择要加入白名单的文件")
-            return
-        
-        # 确认对话框
-        count = len(paths)
-        confirm = messagebox.askyesno("确认", f"确定要将 {count} 个项目添加到白名单吗？\n\n添加后扫描时将忽略这些文件。")
-        if not confirm:
-            return
-        
-        from datetime import datetime
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        for path in paths:
-            if path and path != "N/A" and path not in [item["path"] for item in self.whitelist]:
-                self.whitelist.append({
-                    "path": path,
-                    "added_time": now,
-                    "note": "手动添加"
-                })
-                self.log(f"已添加到白名单: {path}", "success")
-        
-        self._save_whitelist()
-        self._refresh_whitelist()
-        messagebox.showinfo("完成", f"已添加 {count} 个项目到白名单")
-    
-    def _delete_file(self):
-        """删除文件"""
-        paths = self._get_selected_paths()
-        if not paths:
-            messagebox.showinfo("提示", "请先选择要删除的文件")
-            return
-        
-        # 确认对话框
-        count = len(paths)
-        confirm = messagebox.askyesno("确认删除", 
-                                       f"确定要删除 {count} 个文件吗？\n\n"
-                                       "⚠️ 此操作不可恢复！\n"
-                                       "建议先备份重要文件。",
-                                       icon=messagebox.WARNING)
-        if not confirm:
-            return
-        
-        deleted = 0
-        for path in paths:
-            if not path or path == "N/A":
-                continue
-            try:
-                if os.path.exists(path):
-                    if os.path.isfile(path):
-                        os.remove(path)
-                        deleted += 1
-                        self.log(f"已删除: {path}", "success")
-                    elif os.path.isdir(path):
-                        import shutil
-                        shutil.rmtree(path)
-                        deleted += 1
-                        self.log(f"已删除目录: {path}", "success")
-                else:
-                    self.log(f"文件不存在: {path}", "warning")
-            except PermissionError:
-                self.log(f"删除失败（权限不足）: {path}", "error")
-            except Exception as e:
-                self.log(f"删除失败: {path} - {e}", "error")
-        
-        messagebox.showinfo("完成", f"成功删除 {deleted}/{count} 个文件")
-    
-    def _reveal_in_explorer(self):
-        """在资源管理器中选择文件"""
-        self._open_file_location()
-    
-    def _view_details(self):
-        """查看详细信息"""
-        paths = self._get_selected_paths()
-        if not paths:
-            messagebox.showinfo("提示", "请先选择一项")
-            return
-        
-        detail_text = ""
-        for item in self.result_tree.selection():
-            values = self.result_tree.item(item, "values")
-            if len(values) >= 4:
-                path = values[2]
-                detail_text += f"=== 文件详情 ===\n"
-                detail_text += f"类型: {values[0]}\n"
-                detail_text += f"严重性: {values[1]}\n"
-                detail_text += f"路径: {values[2]}\n"
-                detail_text += f"详情: {values[3]}\n"
-                
-                if path and path != "N/A" and os.path.exists(path):
-                    try:
-                        stat = os.stat(path)
-                        from datetime import datetime
-                        detail_text += f"文件大小: {stat.st_size} 字节\n"
-                        detail_text += f"修改时间: {datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')}\n"
-                        detail_text += f"创建时间: {datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S')}\n"
-                        detail_text += f"权限: {oct(stat.st_mode)[-3:]}\n"
-                    except:
-                        detail_text += "（无法获取文件详细信息）\n"
-                else:
-                    detail_text += "（文件不存在或路径无效）\n"
-                
-                detail_text += "\n"
-        
-        # 显示详情窗口
-        detail_window = tk.Toplevel(self.root)
-        detail_window.title("文件详细信息")
-        detail_window.geometry("500x400")
-        
-        text_widget = scrolledtext.ScrolledText(detail_window, wrap=tk.WORD)
-        text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        text_widget.insert(tk.END, detail_text)
-        text_widget.config(state=tk.DISABLED)
-    
-    def _export_selected(self):
-        """导出选中项"""
-        items = []
-        for item in self.result_tree.selection():
-            values = self.result_tree.item(item, "values")
-            if len(values) >= 4:
-                items.append({
-                    "type": values[0],
-                    "severity": values[1],
-                    "path": values[2],
-                    "detail": values[3]
-                })
-        
-        if not items:
-            messagebox.showinfo("提示", "请先选择要导出的项")
-            return
-        
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON文件", "*.json"), ("文本文件", "*.txt")],
-            title="导出扫描结果"
-        )
-        
-        if file_path:
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(items, f, ensure_ascii=False, indent=2)
-                self.log(f"已导出 {len(items)} 条记录到: {file_path}", "success")
-                messagebox.showinfo("完成", f"已导出到: {file_path}")
-            except Exception as e:
-                messagebox.showerror("错误", f"导出失败: {e}")
-    
-    def _export_all(self):
-        """导出全部"""
-        # 选中所有项
-        all_items = self.result_tree.get_children()
-        self.result_tree.selection_set(all_items)
-        self._export_selected()
-    
-    # ========== 历史记录功能 ==========
-    
-    def _refresh_history(self):
-        """刷新历史记录"""
-        if not self.history:
-            return
-        
-        # 清空列表
-        for item in self.history_tree.get_children():
-            self.history_tree.delete(item)
-        
-        # 获取筛选条件
-        filter_text = self.history_filter.get()
-        action_filter = None
-        if filter_text == "扫描":
-            action_filter = "scan"
-        elif filter_text == "清理":
-            action_filter = "clean"
-        elif filter_text == "修复":
-            action_filter = "repair"
-        elif filter_text == "完整处理":
-            action_filter = "full"
-        
-        # 获取记录
-        records = self.history.get_records(limit=50, action_type=action_filter)
-        
-        # 填充列表
-        for record in records:
-            time_str = self.history.format_timestamp(record.get("timestamp", ""))
-            action_name = self.history.get_action_type_name(record.get("action_type", ""))
-            count = record.get("result_count", 0)
-            summary = record.get("summary", "")
-            
-            self.history_tree.insert("", tk.END, 
-                                      values=(time_str, action_name, f"{count} 项", summary),
-                                      iid=str(record.get("id", "")))
-        
-        # 更新统计
-        stats = self.history.get_statistics()
-        self.history_stats_label.config(
-            text=f"共 {stats['total_records']} 条记录 | "
-                 f"扫描 {stats['scan_count']} | 清理 {stats['clean_count']} | "
-                 f"修复 {stats['repair_count']} | 完整处理 {stats['full_count']}"
-        )
-    
-    def _show_history_context_menu(self, event):
-        """显示历史记录右键菜单"""
-        item = self.history_tree.identify_row(event.y)
-        if item:
-            if item not in self.history_tree.selection():
-                self.history_tree.selection_set(item)
-            self.history_context_menu.tk_popup(event.x_root, event.y_root)
-    
-    def _view_history_detail(self, event):
-        """双击查看历史记录详情"""
-        self._view_history_detail_menu()
-    
-    def _view_history_detail_menu(self):
-        """查看历史记录详情"""
-        selection = self.history_tree.selection()
-        if not selection:
-            return
-        
-        record_id = int(selection[0])
-        record = self.history.get_record_by_id(record_id)
-        
-        if not record:
-            messagebox.showinfo("提示", "未找到记录详情")
-            return
-        
-        # 显示详情
-        self.history_detail_text.config(state=tk.NORMAL)
-        self.history_detail_text.delete(1.0, tk.END)
-        
-        detail = f"时间: {self.history.format_timestamp(record.get('timestamp', ''))}\n"
-        detail += f"操作类型: {self.history.get_action_type_name(record.get('action_type', ''))}\n"
-        detail += f"发现威胁数: {record.get('result_count', 0)}\n"
-        detail += f"摘要: {record.get('summary', '无')}\n"
-        detail += f"\n{'='*50}\n详细结果:\n{'='*50}\n\n"
-        
-        results = record.get("results", [])
-        if results:
-            for i, r in enumerate(results, 1):
-                detail += f"{i}. [{r.get('type', '?')}] {r.get('path', 'N/A')}\n"
-                detail += f"   严重性: {r.get('severity', 'N/A')} | 详情: {r.get('detail', 'N/A')}\n\n"
-        
-        if record.get("truncated"):
-            detail += "\n（仅显示前50条结果，完整结果请查看报告文件）\n"
-        
-        self.history_detail_text.insert(tk.END, detail)
-        self.history_detail_text.config(state=tk.DISABLED)
-    
-    def _replay_history(self):
-        """重新执行历史扫描"""
-        messagebox.showinfo("提示", "将根据历史记录重新执行扫描...")
-        self.notebook.select(0)  # 切换到扫描标签页
-        self.start_scan()
-    
-    def _delete_history_record(self):
-        """删除历史记录"""
-        selection = self.history_tree.selection()
-        if not selection:
-            return
-        
-        confirm = messagebox.askyesno("确认", "确定要删除这条历史记录吗？")
-        if not confirm:
-            return
-        
-        record_id = int(selection[0])
-        self.history.delete_record(record_id)
-        self._refresh_history()
-        self.log("已删除历史记录", "info")
-    
-    def _clear_history(self):
-        """清空所有历史记录"""
-        confirm = messagebox.askyesno("确认", "确定要清空所有历史记录吗？\n\n此操作不可恢复！")
-        if not confirm:
-            return
-        
-        self.history.clear_history()
-        self._refresh_history()
-        self.log("已清空所有历史记录", "info")
-    
-    # ========== 白名单功能 ==========
-    
-    def _refresh_whitelist(self):
-        """刷新白名单列表"""
-        for item in self.whitelist_tree.get_children():
-            self.whitelist_tree.delete(item)
-        
-        for i, item in enumerate(self.whitelist, 1):
-            self.whitelist_tree.insert("", tk.END,
-                                       values=(i, item.get("path", ""), 
-                                              item.get("added_time", ""),
-                                              item.get("note", "")))
-    
-    def _add_whitelist_item(self):
-        """添加白名单项"""
-        # 让用户选择文件或输入路径
-        path = filedialog.askopenfilename(title="选择要加入白名单的文件")
-        if not path:
-            # 尝试输入目录
-            path = filedialog.askdirectory(title="选择要加入白名单的目录")
-        
-        if path:
-            from datetime import datetime
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            # 检查是否已存在
-            if path in [item["path"] for item in self.whitelist]:
-                messagebox.showinfo("提示", "该路径已在白名单中")
-                return
-            
-            note = simpledialog.askstring("备注", "请输入备注（可选）:", initialvalue="手动添加")
-            
-            self.whitelist.append({
-                "path": path,
-                "added_time": now,
-                "note": note or "手动添加"
-            })
-            
-            self._save_whitelist()
-            self._refresh_whitelist()
-            self.log(f"已添加到白名单: {path}", "success")
-    
-    def _remove_whitelist_item(self):
-        """移除白名单项"""
-        selection = self.whitelist_tree.selection()
-        if not selection:
-            messagebox.showinfo("提示", "请先选择要移除的项")
-            return
-        
-        confirm = messagebox.askyesno("确认", "确定要移除选中的白名单项吗？")
-        if not confirm:
-            return
-        
-        for item_id in selection:
-            values = self.whitelist_tree.item(item_id, "values")
-            path = values[1]  # 路径在第2列
-            self.whitelist = [w for w in self.whitelist if w.get("path") != path]
-        
-        self._save_whitelist()
-        self._refresh_whitelist()
-        self.log(f"已移除 {len(selection)} 个白名单项", "info")
-    
-    # ========== 扫描/清除/修复功能 ==========
-    
-    def start_scan(self):
-        """开始扫描"""
-        self.clear_results()
-        self.log("开始扫描系统...", "info")
-        self.update_status("扫描中...")
-        self.update_progress(0)
-        
-        # 禁用按钮
-        self.scan_btn.config(state=tk.DISABLED)
-        self.clean_btn.config(state=tk.DISABLED)
-        self.repair_btn.config(state=tk.DISABLED)
-        self.full_btn.config(state=tk.DISABLED)
-        
-        thread = threading.Thread(target=self.run_scan)
-        thread.daemon = True
-        thread.start()
-    
-    def run_scan(self):
-        """执行扫描"""
-        try:
-            for i in range(101):
-                self.root.after(0, self.update_progress, i)
-                time.sleep(0.02)
-            
-            results = self.scanner.scan_all()
-            self.root.after(0, self.scan_complete, results)
-            
-        except Exception as e:
-            self.root.after(0, self.scan_error, str(e))
-    
-    def scan_complete(self, results):
-        """扫描完成"""
-        self.clear_results()
-        
-        # 过滤白名单
-        filtered_results = []
-        for result in results:
-            path = result.get('path', '')
-            if not self._is_in_whitelist(path):
-                filtered_results.append(result)
-                self.add_result(
-                    result.get('type', 'unknown'),
-                    result.get('severity', 'unknown'),
-                    result.get('path', 'N/A'),
-                    result.get('detail', 'N/A')
-                )
-        
-        # 保存历史记录
-        if self.history:
-            self.history.add_record("scan", filtered_results, 
-                                    f"扫描完成，发现 {len(filtered_results)} 个威胁")
-            self._refresh_history()
-        
-        # 更新统计
-        self.threats_label.config(text=f"威胁: {len(filtered_results)}")
-        
-        # 更新状态
-        skipped = len(results) - len(filtered_results)
-        msg = f"扫描完成，发现 {len(filtered_results)} 个威胁"
-        if skipped > 0:
-            msg += f"（已忽略 {skipped} 个白名单项）"
-        
-        self.log(msg, "success" if len(filtered_results) == 0 else "warning")
-        self.update_status("扫描完成")
-        self.update_progress(100)
-        
-        # 启用按钮
-        self.scan_btn.config(state=tk.NORMAL)
-        if filtered_results:
-            self.clean_btn.config(state=tk.NORMAL)
-            self.repair_btn.config(state=tk.NORMAL)
-        self.full_btn.config(state=tk.NORMAL)
-    
-    def _is_in_whitelist(self, path):
-        """检查路径是否在白名单中"""
+        self.whitelist_path.parent.mkdir(parents=True, exist_ok=True)
+        temp = self.whitelist_path.with_suffix(".tmp")
+        temp.write_text(json.dumps(self.whitelist, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temp, self.whitelist_path)
+
+    def _is_whitelisted(self, path):
         if not path:
             return False
-        for item in self.whitelist:
-            wl_path = item.get("path", "")
-            if path == wl_path or path.startswith(wl_path):
+        normalized = os.path.normcase(os.path.abspath(path))
+        for entry in self.whitelist:
+            allowed = entry.get("path", "")
+            if not allowed:
+                continue
+            allowed = os.path.normcase(os.path.abspath(allowed))
+            if normalized == allowed or normalized.startswith(allowed + os.sep):
                 return True
         return False
-    
-    def scan_error(self, error_msg):
-        """扫描出错"""
-        self.log(f"扫描出错: {error_msg}", "error")
-        self.update_status("扫描失败")
-        self.update_progress(0)
-        
-        self.scan_btn.config(state=tk.NORMAL)
-        self.full_btn.config(state=tk.NORMAL)
-        
-        messagebox.showerror("扫描错误", f"扫描过程中出错: {error_msg}")
-    
+
+    def _filter_whitelist(self, results):
+        return [item for item in results if not self._is_whitelisted(item.get("path"))]
+
+    def _log(self, message, level="info"):
+        stamp = datetime.now().strftime("%H:%M:%S")
+        self.log_text.insert(tk.END, f"[{stamp}] {message}\n", level)
+        self.log_text.see(tk.END)
+
+    def _thread_progress(self, percent, message):
+        self.root.after(0, self._apply_progress, percent, message)
+
+    def _apply_progress(self, percent, message):
+        value = max(0, min(100, int(percent)))
+        self.progress["value"] = value
+        self.progress_value.config(text=f"{value}%")
+        display_message = message if len(message) <= 68 else message[:65] + "…"
+        self.progress_text.config(text=display_message)
+        self.summary_labels["state"].config(text=self._progress_stage(message))
+
+    @staticmethod
+    def _progress_stage(message):
+        if any(token in message for token in ("候选", "文件", "校验", "枚举")):
+            return "文件扫描"
+        if "注册表" in message:
+            return "注册表扫描"
+        if "进程" in message:
+            return "进程扫描"
+        if "网络" in message:
+            return "网络扫描"
+        if "处置" in message:
+            return "安全处置"
+        if any(token in message for token in ("修复", "防火墙", "Defender", "DNS", "hosts", "WDAC")):
+            return "安全修复"
+        if "完成" in message:
+            return "已完成"
+        return "处理中"
+
+    def _set_summary(self, findings, confirmed, handled, state):
+        self.summary_labels["findings"].config(text=str(findings))
+        self.summary_labels["confirmed"].config(text=str(confirmed))
+        self.summary_labels["handled"].config(text=str(handled))
+        self.summary_labels["state"].config(text=state)
+
+    def _set_busy(self, busy):
+        self.busy = busy
+        state = tk.DISABLED if busy else tk.NORMAL
+        for button in (self.scan_button, self.repair_button, self.full_button,
+                       self.quarantine_button, self.history_button, self.whitelist_button):
+            button.config(state=state)
+        self.clean_button.config(state=tk.DISABLED if busy or not self._confirmed_count() else tk.NORMAL)
+        self.export_button.config(state=tk.DISABLED if busy or not self.last_scan_results else tk.NORMAL)
+
+    def _confirmed_count(self):
+        return sum(1 for item in self.last_scan_results
+                   if item.get("confidence") == "confirmed" and item.get("remediable"))
+
+    def _run_background(self, target):
+        self._set_busy(True)
+        threading.Thread(target=target, daemon=True).start()
+
+    def _clear_findings(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+    def _render_findings(self, results):
+        self._clear_findings()
+        severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        for result in sorted(results, key=lambda x: severity_order.get(x.get("severity"), 9)):
+            severity = result.get("severity", "unknown")
+            location = result.get("path") or result.get("remote_address", "N/A")
+            self.tree.insert("", tk.END, values=(
+                severity.upper(), result.get("confidence", "unknown"),
+                result.get("type", "unknown"), location, result.get("detail", "")),
+                tags=(severity,))
+
+    def start_scan(self):
+        self._clear_findings()
+        self._apply_progress(0, "正在准备扫描…")
+        self._log("开始扫描系统。", "info")
+
+        def worker():
+            try:
+                results = self.scanner.scan_all(self._thread_progress)
+                self.root.after(0, self._scan_complete, results)
+            except Exception as exc:
+                self.root.after(0, self._operation_error, "扫描失败", str(exc))
+        self._run_background(worker)
+
+    def _scan_complete(self, results):
+        results = self._filter_whitelist(results)
+        self.last_scan_results = results
+        confirmed = sum(item.get("confidence") == "confirmed" for item in results)
+        self._render_findings(results)
+        self._set_summary(len(results), confirmed, 0, "扫描完成")
+        self._apply_progress(100, f"扫描完成：{len(results)} 条线索，{confirmed} 条确认 IOC")
+        self._log(f"扫描完成：{len(results)} 条线索，{confirmed} 条确认 IOC。",
+                  "success" if confirmed == 0 else "warning")
+        self.history.add_record("scan", results,
+                                f"扫描完成：{len(results)} 条线索，{confirmed} 条确认 IOC")
+        self._set_busy(False)
+
     def start_clean(self):
-        """开始清除"""
-        self.log("开始清除病毒...", "info")
-        self.update_status("清除中...")
-        self.update_progress(0)
-        
-        self.scan_btn.config(state=tk.DISABLED)
-        self.clean_btn.config(state=tk.DISABLED)
-        self.repair_btn.config(state=tk.DISABLED)
-        self.full_btn.config(state=tk.DISABLED)
-        
-        thread = threading.Thread(target=self.run_clean)
-        thread.daemon = True
-        thread.start()
-    
-    def run_clean(self):
-        """执行清除"""
-        try:
-            for i in range(101):
-                self.root.after(0, self.update_progress, i)
-                time.sleep(0.02)
-            
-            results = self.cleaner.clean_all()
-            self.root.after(0, self.clean_complete, results)
-            
-        except Exception as e:
-            self.root.after(0, self.clean_error, str(e))
-    
-    def clean_complete(self, results):
-        """清除完成"""
-        cleaned_count = sum(1 for r in results if r.get('success', False))
-        self.cleaned_label.config(text=f"已清除: {cleaned_count}")
-        
-        # 保存历史记录
-        if self.history:
-            self.history.add_record("clean", results, 
-                                    f"清除完成，处理了 {len(results)} 个项目")
-            self._refresh_history()
-        
-        self.log(f"清除完成，处理了 {len(results)} 个项目", "success")
-        self.update_status("清除完成")
-        self.update_progress(100)
-        
-        self.scan_btn.config(state=tk.NORMAL)
-        self.clean_btn.config(state=tk.NORMAL)
-        self.repair_btn.config(state=tk.NORMAL)
-        self.full_btn.config(state=tk.NORMAL)
-    
-    def clean_error(self, error_msg):
-        """清除出错"""
-        self.log(f"清除出错: {error_msg}", "error")
-        self.update_status("清除失败")
-        self.update_progress(0)
-        
-        self.scan_btn.config(state=tk.NORMAL)
-        self.clean_btn.config(state=tk.NORMAL)
-        self.repair_btn.config(state=tk.NORMAL)
-        self.full_btn.config(state=tk.NORMAL)
-        
-        messagebox.showerror("清除错误", f"清除过程中出错: {error_msg}")
-    
+        count = self._confirmed_count()
+        if not count:
+            messagebox.showinfo("无需处置", "当前没有可自动处置的确认 IOC。")
+            return
+        if not messagebox.askyesno("确认处置",
+                                   f"将处置 {count} 个确认 IOC。文件会先隔离并支持恢复，是否继续？"):
+            return
+        self._apply_progress(0, "正在准备处置…")
+
+        def worker():
+            try:
+                results = self.cleaner.clean_all(
+                    self.last_scan_results,
+                    lambda current, total, message: self._thread_progress(
+                        current / max(total, 1) * 100, message))
+                self.root.after(0, self._clean_complete, results)
+            except Exception as exc:
+                self.root.after(0, self._operation_error, "处置失败", str(exc))
+        self._run_background(worker)
+
+    def _clean_complete(self, results):
+        handled = sum(item.get("success", False) for item in results)
+        self._set_summary(len(self.last_scan_results),
+                          sum(x.get("confidence") == "confirmed" for x in self.last_scan_results),
+                          handled, "处置完成")
+        self._apply_progress(100, f"处置完成：成功 {handled} 项")
+        self._log(f"处置完成：成功 {handled} 项；其余低置信线索保持不变。", "success")
+        self.history.add_record("clean", results, f"处置完成：成功 {handled} 项")
+        self._set_busy(False)
+
     def start_repair(self):
-        """开始修复"""
-        self.log("开始修复系统...", "info")
-        self.update_status("修复中...")
-        self.update_progress(0)
-        
-        self.scan_btn.config(state=tk.DISABLED)
-        self.clean_btn.config(state=tk.DISABLED)
-        self.repair_btn.config(state=tk.DISABLED)
-        self.full_btn.config(state=tk.DISABLED)
-        
-        thread = threading.Thread(target=self.run_repair)
-        thread.daemon = True
-        thread.start()
-    
-    def run_repair(self):
-        """执行修复"""
-        try:
-            for i in range(101):
-                self.root.after(0, self.update_progress, i)
-                time.sleep(0.02)
-            
-            results = self.repairer.repair_all()
-            self.root.after(0, self.repair_complete, results)
-            
-        except Exception as e:
-            self.root.after(0, self.repair_error, str(e))
-    
-    def repair_complete(self, results):
-        """修复完成"""
-        repaired_count = sum(1 for r in results if r.get('success', False))
-        self.repaired_label.config(text=f"已修复: {repaired_count}")
-        
-        # 保存历史记录
-        if self.history:
-            self.history.add_record("repair", results, 
-                                    f"修复完成，处理了 {len(results)} 个设置")
-            self._refresh_history()
-        
-        self.log(f"修复完成，处理了 {len(results)} 个设置", "success")
-        self.update_status("修复完成")
-        self.update_progress(100)
-        
-        self.scan_btn.config(state=tk.NORMAL)
-        self.clean_btn.config(state=tk.NORMAL)
-        self.repair_btn.config(state=tk.NORMAL)
-        self.full_btn.config(state=tk.NORMAL)
-    
-    def repair_error(self, error_msg):
-        """修复出错"""
-        self.log(f"修复出错: {error_msg}", "error")
-        self.update_status("修复失败")
-        self.update_progress(0)
-        
-        self.scan_btn.config(state=tk.NORMAL)
-        self.clean_btn.config(state=tk.NORMAL)
-        self.repair_btn.config(state=tk.NORMAL)
-        self.full_btn.config(state=tk.NORMAL)
-        
-        messagebox.showerror("修复错误", f"修复过程中出错: {error_msg}")
-    
+        if not messagebox.askyesno(
+            "确认安全修复",
+            "将启用防火墙和 Defender、刷新 DNS、备份后清理 hosts 精确 IOC。WDAC 只审计不删除。继续吗？"):
+            return
+        self._apply_progress(0, "正在准备安全修复…")
+
+        def worker():
+            try:
+                results = self.repairer.repair_all(
+                    lambda current, total, message: self._thread_progress(
+                        current / max(total, 1) * 100, message))
+                self.root.after(0, self._repair_complete, results)
+            except Exception as exc:
+                self.root.after(0, self._operation_error, "修复失败", str(exc))
+        self._run_background(worker)
+
+    def _repair_complete(self, results):
+        success = sum(item.get("success", False) for item in results)
+        self._apply_progress(100, f"安全修复完成：{success}/{len(results)} 项成功")
+        self._log(f"安全修复完成：{success}/{len(results)} 项成功。", "success")
+        self.history.add_record("repair", results,
+                                f"安全修复完成：{success}/{len(results)} 项成功")
+        self.summary_labels["state"].config(text="修复完成")
+        self._set_busy(False)
+
     def start_full(self):
-        """开始完整处理"""
-        self.clear_results()
-        self.log("开始完整处理（扫描+清除+修复）...", "info")
-        self.update_status("完整处理中...")
-        self.update_progress(0)
-        
-        self.scan_btn.config(state=tk.DISABLED)
-        self.clean_btn.config(state=tk.DISABLED)
-        self.repair_btn.config(state=tk.DISABLED)
-        self.full_btn.config(state=tk.DISABLED)
-        
-        thread = threading.Thread(target=self.run_full)
-        thread.daemon = True
-        thread.start()
-    
-    def run_full(self):
-        """执行完整处理"""
-        try:
-            # 扫描阶段
-            self.root.after(0, self.log, "阶段1/3: 扫描系统...", "info")
-            for i in range(34):
-                self.root.after(0, self.update_progress, i)
-                time.sleep(0.02)
-            
-            scan_results = self.scanner.scan_all()
-            self.root.after(0, self.log, f"扫描完成，发现 {len(scan_results)} 个威胁", "info")
-            
-            # 清除阶段
-            self.root.after(0, self.log, "阶段2/3: 清除病毒...", "info")
-            for i in range(34, 67):
-                self.root.after(0, self.update_progress, i)
-                time.sleep(0.02)
-            
-            clean_results = self.cleaner.clean_all(scan_results)
-            self.root.after(0, self.log, f"清除完成，处理了 {len(clean_results)} 个项目", "info")
-            
-            # 修复阶段
-            self.root.after(0, self.log, "阶段3/3: 修复系统...", "info")
-            for i in range(67, 101):
-                self.root.after(0, self.update_progress, i)
-                time.sleep(0.02)
-            
-            repair_results = self.repairer.repair_all()
-            self.root.after(0, self.log, f"修复完成，处理了 {len(repair_results)} 个设置", "info")
-            
-            self.root.after(0, self.full_complete, scan_results, clean_results, repair_results)
-            
-        except Exception as e:
-            self.root.after(0, self.full_error, str(e))
-    
-    def full_complete(self, scan_results, clean_results, repair_results):
-        """完整处理完成"""
-        self.clear_results()
-        
-        for result in scan_results:
-            self.add_result(
-                result.get('type', 'unknown'),
-                result.get('severity', 'unknown'),
-                result.get('path', 'N/A'),
-                result.get('detail', 'N/A')
-            )
-        
-        self.threats_label.config(text=f"威胁: {len(scan_results)}")
-        cleaned_count = sum(1 for r in clean_results if r.get('success', False))
-        self.cleaned_label.config(text=f"已清除: {cleaned_count}")
-        repaired_count = sum(1 for r in repair_results if r.get('success', False))
-        self.repaired_label.config(text=f"已修复: {repaired_count}")
-        
-        # 保存历史记录
-        if self.history:
-            all_results = scan_results + clean_results + repair_results
-            self.history.add_record("full", all_results, 
-                                    f"完整处理完成 - 扫描{len(scan_results)}项, 清除{cleaned_count}项, 修复{repaired_count}项")
-            self._refresh_history()
-        
-        self.log("完整处理完成！", "success")
-        self.update_status("完整处理完成")
-        self.update_progress(100)
-        
-        self.scan_btn.config(state=tk.NORMAL)
-        self.clean_btn.config(state=tk.NORMAL)
-        self.repair_btn.config(state=tk.NORMAL)
-        self.full_btn.config(state=tk.NORMAL)
-        
-        messagebox.showinfo("完成", "完整处理已完成！请查看详细结果。")
-    
-    def full_error(self, error_msg):
-        """完整处理出错"""
-        self.log(f"完整处理出错: {error_msg}", "error")
-        self.update_status("完整处理失败")
-        self.update_progress(0)
-        
-        self.scan_btn.config(state=tk.NORMAL)
-        self.clean_btn.config(state=tk.NORMAL)
-        self.repair_btn.config(state=tk.NORMAL)
-        self.full_btn.config(state=tk.NORMAL)
-        
-        messagebox.showerror("错误", f"完整处理过程中出错: {error_msg}")
+        if not messagebox.askyesno(
+            "确认扫描并修复",
+            "将先扫描，再仅处置确认 IOC，最后执行保守安全修复。是否继续？"):
+            return
+        self._clear_findings()
+        self._apply_progress(0, "正在准备完整处理…")
+
+        def worker():
+            try:
+                scan_results = self.scanner.scan_all(
+                    lambda value, message: self._thread_progress(value * 0.65, message))
+                scan_results = self._filter_whitelist(scan_results)
+                clean_results = self.cleaner.clean_all(
+                    scan_results,
+                    lambda current, total, message: self._thread_progress(
+                        65 + current / max(total, 1) * 17, message))
+                repair_results = self.repairer.repair_all(
+                    lambda current, total, message: self._thread_progress(
+                        82 + current / max(total, 1) * 18, message))
+                self.root.after(0, self._full_complete, scan_results, clean_results, repair_results)
+            except Exception as exc:
+                self.root.after(0, self._operation_error, "完整处理失败", str(exc))
+        self._run_background(worker)
+
+    def _full_complete(self, scan_results, clean_results, repair_results):
+        scan_results = self._filter_whitelist(scan_results)
+        self.last_scan_results = scan_results
+        confirmed = sum(item.get("confidence") == "confirmed" for item in scan_results)
+        handled = sum(item.get("success", False) for item in clean_results)
+        repaired = sum(item.get("success", False) for item in repair_results)
+        self._render_findings(scan_results)
+        self._set_summary(len(scan_results), confirmed, handled, "全部完成")
+        self._apply_progress(100, f"全部完成：处置 {handled} 项，修复 {repaired} 项")
+        self._log(f"完整处理完成：确认 {confirmed}，处置 {handled}，修复 {repaired}。", "success")
+        self.history.add_record("full", scan_results + clean_results + repair_results,
+                                f"完整处理：确认 {confirmed}，处置 {handled}，修复 {repaired}")
+        self._set_busy(False)
+
+    def _operation_error(self, title, detail):
+        self._apply_progress(0, title)
+        self._log(f"{title}: {detail}", "error")
+        self.summary_labels["state"].config(text="发生错误")
+        self._set_busy(False)
+        messagebox.showerror(title, detail)
+
+    def _selected_location(self):
+        selection = self.tree.selection()
+        if not selection:
+            return None
+        return self.tree.item(selection[0], "values")[3]
+
+    def _show_finding_menu(self, event):
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        self.tree.selection_set(item)
+        self.finding_menu.tk_popup(event.x_root, event.y_root)
+
+    def _copy_selected_location(self):
+        location = self._selected_location()
+        if location:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(location)
+            self._log(f"已复制位置: {location}", "info")
+
+    def _reveal_selected(self):
+        location = self._selected_location()
+        if not location or not os.path.exists(location):
+            messagebox.showinfo("无法打开", "所选项不是本机现存文件。")
+            return
+        subprocess.Popen(["explorer.exe", "/select,", os.path.abspath(location)])
+
+    def _whitelist_selected(self):
+        location = self._selected_location()
+        if location:
+            self._add_whitelist_path(location, "从扫描结果添加")
+
+    def _add_whitelist_path(self, path, note="手动添加"):
+        path = os.path.abspath(path)
+        if any(os.path.normcase(item.get("path", "")) == os.path.normcase(path)
+               for item in self.whitelist):
+            messagebox.showinfo("白名单", "该路径已在白名单中。")
+            return False
+        self.whitelist.append({
+            "path": path, "added_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "note": note,
+        })
+        self._save_whitelist()
+        self._log(f"已加入白名单: {path}", "success")
+        return True
+
+    def show_whitelist(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("白名单管理")
+        dialog.geometry("820x430")
+        dialog.configure(bg=self.BG)
+        dialog.transient(self.root)
+        frame = ttk.Frame(dialog, style="App.TFrame", padding=18)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text=f"白名单 · {len(self.whitelist)} 项", style="Section.TLabel").pack(anchor=tk.W)
+        tree = ttk.Treeview(frame, columns=("path", "time", "note"), show="headings")
+        for column, title, width in (("path", "路径", 440), ("time", "添加时间", 150),
+                                     ("note", "备注", 180)):
+            tree.heading(column, text=title)
+            tree.column(column, width=width, stretch=column == "path")
+
+        def refresh():
+            for item in tree.get_children():
+                tree.delete(item)
+            for index, entry in enumerate(self.whitelist):
+                tree.insert("", tk.END, iid=str(index), values=(
+                    entry.get("path", ""), entry.get("added_time", ""), entry.get("note", "")))
+
+        def add_file():
+            path = filedialog.askopenfilename(title="选择白名单文件", parent=dialog)
+            if path:
+                note = simpledialog.askstring("备注", "备注（可选）", parent=dialog) or "手动添加"
+                if self._add_whitelist_path(path, note):
+                    refresh()
+
+        def add_directory():
+            path = filedialog.askdirectory(title="选择白名单目录", parent=dialog)
+            if path and self._add_whitelist_path(path, "目录白名单"):
+                refresh()
+
+        def remove_selected():
+            indexes = sorted((int(item) for item in tree.selection()), reverse=True)
+            if not indexes:
+                return
+            for index in indexes:
+                self.whitelist.pop(index)
+            self._save_whitelist()
+            refresh()
+
+        refresh()
+        tree.pack(fill=tk.BOTH, expand=True, pady=12)
+        ttk.Button(frame, text="移除所选", style="Danger.TButton",
+                   command=remove_selected).pack(side=tk.RIGHT)
+        ttk.Button(frame, text="添加目录", style="Secondary.TButton",
+                   command=add_directory).pack(side=tk.LEFT)
+        ttk.Button(frame, text="添加文件", style="Primary.TButton",
+                   command=add_file).pack(side=tk.LEFT, padx=8)
+
+    def show_history(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("操作历史")
+        dialog.geometry("900x500")
+        dialog.configure(bg=self.BG)
+        dialog.transient(self.root)
+        frame = ttk.Frame(dialog, style="App.TFrame", padding=18)
+        frame.pack(fill=tk.BOTH, expand=True)
+        records = self.history.get_records(limit=100)
+        ttk.Label(frame, text=f"操作历史 · {len(records)} 条", style="Section.TLabel").pack(anchor=tk.W)
+        tree = ttk.Treeview(frame, columns=("time", "action", "count", "summary"), show="headings")
+        for column, title, width in (("time", "时间", 155), ("action", "操作", 80),
+                                     ("count", "结果数", 70), ("summary", "摘要", 520)):
+            tree.heading(column, text=title)
+            tree.column(column, width=width, stretch=column == "summary")
+        record_map = {}
+        for record in records:
+            iid = str(record.get("id"))
+            record_map[iid] = record
+            tree.insert("", tk.END, iid=iid, values=(
+                self.history.format_timestamp(record.get("timestamp", "")),
+                self.history.get_action_type_name(record.get("action_type", "")),
+                record.get("result_count", 0), record.get("summary", "")))
+        tree.pack(fill=tk.BOTH, expand=True, pady=(12, 8))
+        detail = scrolledtext.ScrolledText(frame, height=7, wrap=tk.WORD, borderwidth=0,
+                                           bg="#F8FAFC", font=("Microsoft YaHei UI", 9))
+        detail.pack(fill=tk.X)
+
+        def show_detail(_event=None):
+            selection = tree.selection()
+            if not selection:
+                return
+            record = record_map[selection[0]]
+            detail.delete("1.0", tk.END)
+            detail.insert(tk.END, json.dumps(record, ensure_ascii=False, indent=2))
+
+        tree.bind("<<TreeviewSelect>>", show_detail)
+
+    def export_report(self):
+        if not self.last_scan_results:
+            return
+        path = filedialog.asksaveasfilename(
+            title="导出扫描报告", defaultextension=".txt",
+            filetypes=(("文本报告", "*.txt"), ("JSON 报告", "*.json")))
+        if not path:
+            return
+        ok = (self.reporter.save_report_as_json(self.last_scan_results, path)
+              if path.lower().endswith(".json")
+              else self.reporter.generate_report("scan", self.last_scan_results, path))
+        if ok:
+            self._log(f"报告已导出: {path}", "success")
+            messagebox.showinfo("导出完成", f"报告已保存到：\n{path}")
+        else:
+            messagebox.showerror("导出失败", "无法写入报告文件。")
+
+    def show_quarantine(self):
+        entries = self.quarantine.list()
+        dialog = tk.Toplevel(self.root)
+        dialog.title("隔离区")
+        dialog.geometry("820x430")
+        dialog.minsize(680, 360)
+        dialog.configure(bg=self.BG)
+        dialog.transient(self.root)
+        frame = ttk.Frame(dialog, style="App.TFrame", padding=18)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text=f"隔离文件 · {len(entries)} 项", style="Section.TLabel").pack(anchor=tk.W)
+        tree = ttk.Treeview(frame, columns=("id", "name", "time", "path"), show="headings")
+        for column, title, width in (("id", "恢复 ID", 210), ("name", "文件名", 150),
+                                     ("time", "隔离时间", 150), ("path", "原始路径", 300)):
+            tree.heading(column, text=title)
+            tree.column(column, width=width, stretch=column == "path")
+        for entry in entries:
+            tree.insert("", tk.END, iid=entry["id"], values=(
+                entry["id"], entry.get("original_name", ""),
+                entry.get("timestamp", "")[:19].replace("T", " "), entry.get("original_path", "")))
+        tree.pack(fill=tk.BOTH, expand=True, pady=12)
+
+        def restore_selected():
+            selection = tree.selection()
+            if not selection:
+                messagebox.showinfo("请选择文件", "请先选择一个隔离文件。", parent=dialog)
+                return
+            item_id = selection[0]
+            if not messagebox.askyesno("确认恢复", "将文件恢复到原位置，是否继续？", parent=dialog):
+                return
+            try:
+                restored = self.quarantine.restore(item_id)
+                tree.delete(item_id)
+                self._log(f"已恢复隔离文件: {restored['original_path']}", "success")
+            except Exception as exc:
+                messagebox.showerror("恢复失败", str(exc), parent=dialog)
+
+        ttk.Button(frame, text="恢复所选文件", style="Primary.TButton",
+                   command=restore_selected).pack(side=tk.RIGHT)
 
 
 def main():
-    """主函数"""
     root = tk.Tk()
-    app = SilverFoxKillerGUI(root)
+    SilverFoxKillerGUI(root)
     root.mainloop()
 
 
