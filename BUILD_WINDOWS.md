@@ -10,13 +10,13 @@ python -m venv .venv
 .\build_windows.ps1 -Python .\.venv\Scripts\python.exe
 ```
 
-脚本会依次安装 `requirements-dev.txt`、运行安全测试、构建两个单文件 EXE，并生成 `dist\SHA256SUMS.txt`。重复构建前请关闭已启动的 GUI，否则 Windows 会锁定旧 EXE。
+脚本会从 `version.py` 自动读取版本号，安装 `requirements-dev.txt`、运行安全测试、构建两个单文件 EXE，并生成带版本号的校验文件。重复构建前请关闭已启动的 GUI，否则 Windows 会锁定旧 EXE。
 
 输出：
 
-- `dist\SilverFoxKiller.exe`
-- `dist\SilverFoxKillerGUI.exe`
-- `dist\SHA256SUMS.txt`
+- `dist\SilverFoxKiller-v1.0.4-windows-x64.exe`
+- `dist\SilverFoxKillerGUI-v1.0.4-windows-x64.exe`
+- `dist\SHA256SUMS-v1.0.4.txt`
 
 ## GitHub Actions
 

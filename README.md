@@ -6,9 +6,9 @@
 
 `dist` 目录包含：
 
-- `SilverFoxKillerGUI.exe`：图形界面，适合普通用户。
-- `SilverFoxKiller.exe`：命令行版本，适合应急响应与批量采集。
-- `SHA256SUMS.txt`：发布物完整性校验值。
+- `SilverFoxKillerGUI-v1.0.4-windows-x64.exe`：图形界面，适合普通用户。
+- `SilverFoxKiller-v1.0.4-windows-x64.exe`：命令行版本，适合应急响应与批量采集。
+- `SHA256SUMS-v1.0.4.txt`：发布物完整性校验值。
 
 扫描可以普通权限运行；注册表、系统级进程和安全设置修复需要管理员权限。
 
@@ -30,22 +30,22 @@
 
 ```powershell
 # 扫描并生成文本报告
-.\SilverFoxKiller.exe scan --output report.txt
+.\SilverFoxKiller-v1.0.4-windows-x64.exe scan --output report.txt
 
 # 只扫描指定目录（进程、注册表和网络仍会检查）
-.\SilverFoxKiller.exe scan --path C:\Users\Public\Downloads --json
+.\SilverFoxKiller-v1.0.4-windows-x64.exe scan --path C:\Users\Public\Downloads --json
 
 # 重新扫描并处置已确认 IOC；启发式结果会跳过
-.\SilverFoxKiller.exe clean --yes --output clean-report.txt
+.\SilverFoxKiller-v1.0.4-windows-x64.exe clean --yes --output clean-report.txt
 
 # 查看隔离区
-.\SilverFoxKiller.exe quarantine-list
+.\SilverFoxKiller-v1.0.4-windows-x64.exe quarantine-list
 
 # 恢复隔离文件
-.\SilverFoxKiller.exe restore --id <隔离ID> --yes
+.\SilverFoxKiller-v1.0.4-windows-x64.exe restore --id <隔离ID> --yes
 
 # 保守系统修复
-.\SilverFoxKiller.exe repair --yes
+.\SilverFoxKiller-v1.0.4-windows-x64.exe repair --yes
 ```
 
 不带 `--yes` 时，CLI 不会执行修改系统的操作。GUI 在处置前显示确认对话框。
