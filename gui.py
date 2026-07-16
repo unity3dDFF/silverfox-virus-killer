@@ -25,7 +25,7 @@ class SilverFoxKillerGUI:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("银狐病毒专杀工具 v2.0")
+        self.root.title("银狐病毒专杀工具 v1.0.3")
         self.root.geometry("1000x700")
         self.root.resizable(True, True)
         
@@ -93,7 +93,7 @@ class SilverFoxKillerGUI:
         title_label = ttk.Label(title_frame, text="银狐病毒专杀工具", font=("Arial", 24, "bold"))
         title_label.pack(side=tk.LEFT)
         
-        version_label = ttk.Label(title_frame, text="v2.0", font=("Arial", 12))
+        version_label = ttk.Label(title_frame, text="v1.0.3", font=("Arial", 12))
         version_label.pack(side=tk.LEFT, padx=(10, 0))
         
         # 使用 Notebook (标签页) 来组织内容
