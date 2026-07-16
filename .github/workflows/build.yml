@@ -27,11 +27,11 @@ jobs:
         
     - name: Build CLI version
       run: |
-        pyinstaller --onefile --name SilverFoxKiller main.py
+        pyinstaller --onefile --name SilverFoxKiller --hidden-import psutil main.py
         
     - name: Build GUI version
       run: |
-        pyinstaller --onefile --windowed --name SilverFoxKillerGUI gui.py
+        pyinstaller --onefile --windowed --name SilverFoxKillerGUI --hidden-import psutil --hidden-import tkinter --hidden-import tkinter.ttk --hidden-import tkinter.messagebox --hidden-import tkinter.scrolledtext gui.py
         
     - name: Upload CLI artifact
       uses: actions/upload-artifact@v4

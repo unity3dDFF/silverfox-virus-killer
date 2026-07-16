@@ -5,7 +5,12 @@
 Process Cleaner Module
 """
 
-import psutil
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
 import time
 
 class ProcessCleaner:
@@ -16,6 +21,17 @@ class ProcessCleaner:
     
     def clean_process(self, threat_info):
         """清除指定进程"""
+        if not PSUTIL_AVAILABLE:
+            if self.verbose:
+                print("[警告] psutil未安装，无法清除进程")
+            return {
+                'type': 'process',
+                'action': 'skipped',
+                'detail': 'psutil未安装，无法清除进程',
+                'success': False,
+                'skipped': True
+            }
+        
         try:
             pid = threat_info.get('pid')
             if not pid:
@@ -75,6 +91,9 @@ class ProcessCleaner:
     
     def terminate_process(self, proc):
         """终止进程"""
+        if not PSUTIL_AVAILABLE:
+            return False
+        
         try:
             # 首先尝试正常终止
             proc.terminate()
@@ -109,6 +128,11 @@ class ProcessCleaner:
     def clean_all(self):
         """清除所有可疑进程"""
         results = []
+        
+        if not PSUTIL_AVAILABLE:
+            if self.verbose:
+                print("[警告] psutil未安装，无法清除进程")
+            return results
         
         # 获取所有进程
         for proc in psutil.process_iter(['pid', 'name', 'exe']):

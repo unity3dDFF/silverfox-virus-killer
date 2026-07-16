@@ -5,7 +5,12 @@
 Process Scanner Module
 """
 
-import psutil
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
 import os
 from ioc import MaliciousProcesses
 
@@ -33,6 +38,11 @@ class ProcessScanner:
     def scan(self):
         """扫描进程"""
         results = []
+        
+        if not PSUTIL_AVAILABLE:
+            if self.verbose:
+                print("[警告] psutil未安装，跳过进程扫描")
+            return results
         
         # 获取所有进程
         for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'create_time']):

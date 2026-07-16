@@ -5,7 +5,12 @@
 Network Scanner Module
 """
 
-import psutil
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
 import socket
 from ioc import MaliciousDomains, MaliciousIPs, MaliciousPorts
 
@@ -21,6 +26,11 @@ class NetworkScanner:
     def scan(self):
         """扫描网络连接"""
         results = []
+        
+        if not PSUTIL_AVAILABLE:
+            if self.verbose:
+                print("[警告] psutil未安装，跳过网络扫描")
+            return results
         
         try:
             # 获取所有网络连接

@@ -158,6 +158,13 @@ class SilverFoxKillerGUI:
     def init_modules(self):
         """初始化模块"""
         try:
+            # 检查psutil
+            try:
+                import psutil
+                self.log("psutil模块加载成功", "success")
+            except ImportError:
+                self.log("警告: psutil模块未安装，部分功能受限", "warning")
+            
             from scanner import SilverFoxScanner
             from cleaner import SilverFoxCleaner
             修复_module = importlib.import_module('修复')
@@ -174,7 +181,8 @@ class SilverFoxKillerGUI:
             
         except Exception as e:
             self.log(f"模块初始化失败: {e}", "error")
-            messagebox.showerror("错误", f"模块初始化失败: {e}")
+            self.log(f"错误详情: {str(e)}", "error")
+            messagebox.showerror("错误", f"模块初始化失败: {e}\n\n请确保已安装所有依赖：pip install psutil")
     
     def log(self, message, level="info"):
         """添加日志"""
